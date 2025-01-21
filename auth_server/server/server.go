@@ -35,6 +35,7 @@ import (
 	"github.com/cesanta/docker_auth/auth_server/api"
 	"github.com/cesanta/docker_auth/auth_server/authn"
 	"github.com/cesanta/docker_auth/auth_server/authz"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
@@ -50,6 +51,9 @@ type AuthServer struct {
 	gha            *authn.GitHubAuth
 	oidc           *authn.OIDCAuth
 	glab           *authn.GitlabAuth
+
+	// Additional handlers
+	metricsHandler http.Handler
 }
 
 func NewAuthServer(c *Config) (*AuthServer, error) {
@@ -166,6 +170,7 @@ func NewAuthServer(c *Config) (*AuthServer, error) {
 		}
 		as.authorizers = append(as.authorizers, casbinAuthz)
 	}
+	as.metricsHandler = promhttp.Handler()
 	return as, nil
 }
 
@@ -434,10 +439,12 @@ func (as *AuthServer) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	switch {
 	case req.URL.Path == path_prefix+"/":
 		as.doIndex(rw, req)
+	case req.URL.Path == path_prefix+"/metrics":
+		as.doMetrics(rw, req)
 	case req.URL.Path == path_prefix+"/auth":
 		as.doAuth(rw, req)
 	case req.URL.Path == path_prefix+"/auth/token":
-		as.doAuth(rw, req) 
+		as.doAuth(rw, req)
 	case req.URL.Path == path_prefix+"/google_auth" && as.ga != nil:
 		as.ga.DoGoogleAuth(rw, req)
 	case req.URL.Path == path_prefix+"/github_auth" && as.gha != nil:
@@ -472,6 +479,10 @@ func (as *AuthServer) doIndex(rw http.ResponseWriter, req *http.Request) {
 		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprintf(rw, "<h1>%s</h1>\n", as.config.Token.Issuer)
 	}
+}
+
+func (as *AuthServer) doMetrics(rw http.ResponseWriter, req *http.Request) {
+	as.metricsHandler.ServeHTTP(rw, req)
 }
 
 func (as *AuthServer) doAuth(rw http.ResponseWriter, req *http.Request) {
