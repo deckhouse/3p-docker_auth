@@ -1,6 +1,6 @@
 module github.com/cesanta/docker_auth/auth_server
 
-go 1.24.0
+go 1.24
 
 require (
 	cloud.google.com/go/storage v1.56.1
