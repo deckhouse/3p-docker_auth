@@ -1,6 +1,6 @@
 module github.com/cesanta/docker_auth/auth_server
 
-go 1.24
+go 1.24.0
 
 require (
 	cloud.google.com/go/storage v1.56.1
@@ -11,7 +11,7 @@ require (
 	github.com/deckarep/golang-set v1.8.0
 	github.com/docker/distribution v2.8.3+incompatible
 	github.com/docker/libtrust v0.0.0-20160708172513-aabc10ec26b7
-	github.com/go-ldap/ldap v3.0.3+incompatible
+	github.com/go-ldap/ldap/v3 v3.4.11
 	github.com/go-redis/redis v6.15.9+incompatible
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/lib/pq v1.10.9
@@ -38,6 +38,7 @@ require (
 	cloud.google.com/go/iam v1.5.2 // indirect
 	cloud.google.com/go/monitoring v1.24.2 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
+	github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.29.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.53.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.53.0 // indirect
@@ -49,6 +50,7 @@ require (
 	github.com/envoyproxy/go-control-plane/envoy v1.32.4 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
+	github.com/go-asn1-ber/asn1-ber v1.5.8-0.20250403174932-29230038a667 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.2 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -94,6 +96,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250826171959-ef028d996bc1 // indirect
 	google.golang.org/grpc v1.75.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
-	gopkg.in/asn1-ber.v1 v1.0.0-20181015200546-f715ec2f112d // indirect
 	xorm.io/builder v0.3.13 // indirect
 )
