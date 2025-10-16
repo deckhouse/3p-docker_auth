@@ -27,3 +27,47 @@ acl:
     actions: ["pull", "push"]
     comment: "Infrastructure team members can push and all images"
 ```
+
+## Kubernetes
+
+Authenticate Docker users using Kubernetes bearer tokens. The password provided to `docker login` is treated as a Bearer token and validated via the Kubernetes TokenReview API. This requires the service account used by docker-auth to have permission to create TokenReviews.
+
+Enable in config:
+
+```yaml
+kubernetes_auth:
+  # Use in-cluster config by default; or specify kubeconfig path.
+  # kubeconfig: "/path/to/kubeconfig"
+  request_timeout: "5s"
+  qps: 5
+  burst: 10
+  labels:
+    include_groups: true   # expose k8s user groups as labels["groups"]
+    include_extra: false   # expose TokenReview user.extra[*] as labels
+```
+
+Required RBAC for docker-auth's ServiceAccount:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: docker-auth-tokenreviewer
+rules:
+- apiGroups: ["authentication.k8s.io"]
+  resources: ["tokenreviews"]
+  verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: docker-auth-tokenreviewer-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: docker-auth-tokenreviewer
+subjects:
+- kind: ServiceAccount
+  name: <docker-auth-sa>
+  namespace: <docker-auth-namespace>
+```
