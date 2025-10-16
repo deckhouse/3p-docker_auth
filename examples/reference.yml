@@ -219,9 +219,6 @@ kubernetes_auth:
   # kubeconfig: "/path/to/kubeconfig"
   # Request timeout when calling TokenReview API.
   request_timeout: "5s"
-  # Optional client-go rate limits
-  qps: 5
-  burst: 10
   # Map k8s user groups/extra to labels for ACL matching
   labels:
     include_groups: true

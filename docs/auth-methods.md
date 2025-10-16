@@ -39,8 +39,6 @@ kubernetes_auth:
   # Use in-cluster config by default; or specify kubeconfig path.
   # kubeconfig: "/path/to/kubeconfig"
   request_timeout: "5s"
-  qps: 5
-  burst: 10
   labels:
     include_groups: true   # expose k8s user groups as labels["groups"]
     include_extra: false   # expose TokenReview user.extra[*] as labels

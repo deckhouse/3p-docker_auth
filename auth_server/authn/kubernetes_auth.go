@@ -37,8 +37,6 @@ import (
 type KubernetesAuthConfig struct {
 	Kubeconfig     string        `yaml:"kubeconfig,omitempty"`
 	RequestTimeout time.Duration `yaml:"request_timeout,omitempty"`
-	QPS            float32       `yaml:"qps,omitempty"`
-	Burst          int           `yaml:"burst,omitempty"`
 	Labels         struct {
 		IncludeGroups bool `yaml:"include_groups,omitempty"`
 		IncludeExtra  bool `yaml:"include_extra,omitempty"`
@@ -57,16 +55,10 @@ func (c *KubernetesAuthConfig) Validate(configKey string) error {
 	if c.RequestTimeout <= 0 {
 		c.RequestTimeout = 5 * time.Second
 	}
-	if c.QPS < 0 {
-		return fmt.Errorf("%s.qps must be >= 0", configKey)
-	}
-	if c.Burst < 0 {
-		return fmt.Errorf("%s.burst must be >= 0", configKey)
-	}
 	return nil
 }
 
-func buildRestConfig(kubeconfig string, qps float32, burst int) (*rest.Config, error) {
+func buildRestConfig(kubeconfig string) (*rest.Config, error) {
 	var (
 		cfg *rest.Config
 		err error
@@ -82,12 +74,6 @@ func buildRestConfig(kubeconfig string, qps float32, burst int) (*rest.Config, e
 	if err != nil {
 		return nil, err
 	}
-	if qps > 0 {
-		cfg.QPS = qps
-	}
-	if burst > 0 {
-		cfg.Burst = burst
-	}
 	return cfg, nil
 }
 
@@ -95,7 +81,7 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 	if err := c.Validate("kubernetes_auth"); err != nil {
 		return nil, err
 	}
-	rc, err := buildRestConfig(c.Kubeconfig, c.QPS, c.Burst)
+    rc, err := buildRestConfig(c.Kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build k8s rest config: %w", err)
 	}
@@ -103,7 +89,7 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
-	glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t, qps=%.2f, burst=%d)", c.Kubeconfig != "", rc.QPS, rc.Burst)
+    glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t)", c.Kubeconfig != "")
 	return &KubernetesAuth{cfg: c, client: cs}, nil
 }
 
