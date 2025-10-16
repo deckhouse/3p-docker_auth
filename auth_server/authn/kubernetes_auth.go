@@ -81,7 +81,7 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 	if err := c.Validate("kubernetes_auth"); err != nil {
 		return nil, err
 	}
-    rc, err := buildRestConfig(c.Kubeconfig)
+	rc, err := buildRestConfig(c.Kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build k8s rest config: %w", err)
 	}
@@ -89,7 +89,7 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
-    glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t)", c.Kubeconfig != "")
+	glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t)", c.Kubeconfig != "")
 	return &KubernetesAuth{cfg: c, client: cs}, nil
 }
 
