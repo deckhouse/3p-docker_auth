@@ -145,13 +145,6 @@ func NewAuthServer(c *Config) (*AuthServer, error) {
 		}
 		as.authenticators = append(as.authenticators, xa)
 	}
-	if c.KubernetesAuth != nil {
-		ka, err := authn.NewKubernetesAuth(c.KubernetesAuth)
-		if err != nil {
-			return nil, err
-		}
-		as.authenticators = append(as.authenticators, ka)
-	}
 	if c.PluginAuthn != nil {
 		pluginAuthn, err := authn.NewPluginAuthn(c.PluginAuthn)
 		if err != nil {
@@ -176,6 +169,13 @@ func NewAuthServer(c *Config) (*AuthServer, error) {
 			return nil, err
 		}
 		as.authorizers = append(as.authorizers, casbinAuthz)
+	}
+	if c.KubernetesAuth != nil {
+		ka, err := authn.NewKubernetesAuth(c.KubernetesAuth)
+		if err != nil {
+			return nil, err
+		}
+		as.authenticators = append(as.authenticators, ka)
 	}
 	as.metricsHandler = promhttp.Handler()
 	return as, nil
