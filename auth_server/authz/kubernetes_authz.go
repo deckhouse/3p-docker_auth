@@ -137,6 +137,10 @@ func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) 
 			continue
 		}
 		ns, name := ka.deriveNSAndName(ai)
+		if verb == "create" {
+			// For create, Name is typically empty in SAR
+			name = ""
+		}
 		sar := &authzv1.SubjectAccessReview{
 			Spec: authzv1.SubjectAccessReviewSpec{
 				User:   user,
