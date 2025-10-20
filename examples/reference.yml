@@ -224,6 +224,22 @@ kubernetes_auth:
     include_groups: true
     include_extra: false
 
+# Kubernetes authorization (RBAC via SubjectAccessReview).
+# Maps docker actions (pull/push) to k8s verbs for a CR in api_group/resource.
+kubernetes_authz:
+  # kubeconfig: "/path/to/kubeconfig" # optional; empty means in-cluster
+  request_timeout: "5s"
+  api_group: "deckhouse.io"
+  resource: "payloadrepositories"
+  namespaced: true
+  namespace:
+    mode: "from_repo" # fixed | from_repo
+    # fixed: "d8-system"
+  name_transform: "base32" # base32 | raw
+  verbs:
+    pull: "get"
+    push: "create"
+
 # Gitlab authentication.
 # ==! NB: DO NOT ENTER YOUR Gitlab PASSWORD AT "docker login". IT WILL NOT WORK.
 # Instead, Auth server maintains a database of Gitlab authentication tokens.

@@ -42,6 +42,52 @@ kubernetes_auth:
   labels:
     include_groups: true   # expose k8s user groups as labels["groups"]
     include_extra: false   # expose TokenReview user.extra[*] as labels
+
+Kubernetes authorization:
+
+```yaml
+kubernetes_authz:
+  request_timeout: "5s"
+  api_group: "deckhouse.io"
+  resource: "payloadrepositories"
+  namespaced: true
+  namespace:
+    mode: "from_repo"          # or fixed
+    # fixed: "d8-system"
+  name_transform: "base32"      # or raw
+  verbs:
+    pull: "get"
+    push: "create"
+```
+
+Required RBAC for docker-auth's ServiceAccount:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: docker-auth-tokenreviewer
+rules:
+- apiGroups: ["authentication.k8s.io"]
+  resources: ["tokenreviews"]
+  verbs: ["create"]
+- apiGroups: ["authorization.k8s.io"]
+  resources: ["subjectaccessreviews"]
+  verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: docker-auth-k8s-auth-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: docker-auth-tokenreviewer
+subjects:
+- kind: ServiceAccount
+  name: <docker-auth-sa>
+  namespace: <docker-auth-namespace>
+```
 ```
 
 Required RBAC for docker-auth's ServiceAccount:
