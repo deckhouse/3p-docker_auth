@@ -35,74 +35,74 @@ import (
 )
 
 type KubernetesAuthzConfig struct {
-    Kubeconfig     string        `yaml:"kubeconfig,omitempty"`
-    RequestTimeout time.Duration `yaml:"request_timeout,omitempty"`
+	Kubeconfig     string        `yaml:"kubeconfig,omitempty"`
+	RequestTimeout time.Duration `yaml:"request_timeout,omitempty"`
 
-    APIGroup   string `yaml:"api_group,omitempty"`
-    Resource   string `yaml:"resource,omitempty"`
-    Namespaced bool   `yaml:"namespaced,omitempty"`
+	APIGroup   string `yaml:"api_group,omitempty"`
+	Resource   string `yaml:"resource,omitempty"`
+	Namespaced bool   `yaml:"namespaced,omitempty"`
 
-    Namespace struct {
-        Mode  string `yaml:"mode,omitempty"`  // fixed | from_repo
-        Fixed string `yaml:"fixed,omitempty"`
-    } `yaml:"namespace,omitempty"`
+	Namespace struct {
+		Mode  string `yaml:"mode,omitempty"` // fixed | from_repo
+		Fixed string `yaml:"fixed,omitempty"`
+	} `yaml:"namespace,omitempty"`
 
-    NameTransform string `yaml:"name_transform,omitempty"` // base32 | raw
+	NameTransform string `yaml:"name_transform,omitempty"` // base32 | raw
 
-    Verbs map[string]string `yaml:"verbs,omitempty"` // map docker action -> k8s verb
+	Verbs map[string]string `yaml:"verbs,omitempty"` // map docker action -> k8s verb
 }
 
 type kubernetesAuthz struct {
-    cfg    *KubernetesAuthzConfig
-    client *kubernetes.Clientset
+	cfg    *KubernetesAuthzConfig
+	client *kubernetes.Clientset
 }
 
 func (c *KubernetesAuthzConfig) Validate(configKey string) error {
-    if c == nil {
-        return fmt.Errorf("%s is nil", configKey)
-    }
-    if c.RequestTimeout <= 0 {
-        c.RequestTimeout = 5 * time.Second
-    }
-    if c.APIGroup == "" || c.Resource == "" {
-        return fmt.Errorf("%s.api_group and %s.resource are required", configKey, configKey)
-    }
-    if c.Namespace.Mode == "" {
-        c.Namespace.Mode = "from_repo"
-    }
-    if c.Namespace.Mode == "fixed" && c.Namespace.Fixed == "" && c.Namespaced {
-        return fmt.Errorf("%s.namespace.fixed is required when namespaced and mode=fixed", configKey)
-    }
-    if c.NameTransform == "" {
-        c.NameTransform = "base32"
-    }
-    if c.Verbs == nil {
-        c.Verbs = map[string]string{"pull": "get", "push": "create"}
-    }
-    return nil
+	if c == nil {
+		return fmt.Errorf("%s is nil", configKey)
+	}
+	if c.RequestTimeout <= 0 {
+		c.RequestTimeout = 5 * time.Second
+	}
+	if c.APIGroup == "" || c.Resource == "" {
+		return fmt.Errorf("%s.api_group and %s.resource are required", configKey, configKey)
+	}
+	if c.Namespace.Mode == "" {
+		c.Namespace.Mode = "from_repo"
+	}
+	if c.Namespace.Mode == "fixed" && c.Namespace.Fixed == "" && c.Namespaced {
+		return fmt.Errorf("%s.namespace.fixed is required when namespaced and mode=fixed", configKey)
+	}
+	if c.NameTransform == "" {
+		c.NameTransform = "base32"
+	}
+	if c.Verbs == nil {
+		c.Verbs = map[string]string{"pull": "get", "push": "create"}
+	}
+	return nil
 }
 
 func buildRestConfig(kubeconfig string) (*rest.Config, error) {
-    if kubeconfig != "" {
-        return clientcmd.BuildConfigFromFlags("", kubeconfig)
-    }
-    return rest.InClusterConfig()
+	if kubeconfig != "" {
+		return clientcmd.BuildConfigFromFlags("", kubeconfig)
+	}
+	return rest.InClusterConfig()
 }
 
 func NewKubernetesAuthz(c *KubernetesAuthzConfig) (api.Authorizer, error) {
-    if err := c.Validate("kubernetes_authz"); err != nil {
-        return nil, err
-    }
-    rc, err := buildRestConfig(c.Kubeconfig)
-    if err != nil {
-        return nil, fmt.Errorf("failed to build k8s rest config: %w", err)
-    }
-    cs, err := kubernetes.NewForConfig(rc)
-    if err != nil {
-        return nil, fmt.Errorf("failed to create k8s client: %w", err)
-    }
-    glog.V(1).Infof("Kubernetes authz configured (kubeconfig=%t, group=%s, resource=%s)", c.Kubeconfig != "", c.APIGroup, c.Resource)
-    return &kubernetesAuthz{cfg: c, client: cs}, nil
+	if err := c.Validate("kubernetes_authz"); err != nil {
+		return nil, err
+	}
+	rc, err := buildRestConfig(c.Kubeconfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build k8s rest config: %w", err)
+	}
+	cs, err := kubernetes.NewForConfig(rc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create k8s client: %w", err)
+	}
+	glog.V(1).Infof("Kubernetes authz configured (kubeconfig=%t, group=%s, resource=%s)", c.Kubeconfig != "", c.APIGroup, c.Resource)
+	return &kubernetesAuthz{cfg: c, client: cs}, nil
 }
 
 func (ka *kubernetesAuthz) Stop() {}
@@ -110,82 +110,80 @@ func (ka *kubernetesAuthz) Stop() {}
 func (ka *kubernetesAuthz) Name() string { return "Kubernetes RBAC" }
 
 func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) {
-    // Extract subject from labels
-    user := ""
-    if vals, ok := ai.Labels["k8s_username"]; ok && len(vals) > 0 {
-        user = vals[0]
-    }
-    if user == "" {
-        return nil, api.NoMatch
-    }
-    groups := ai.Labels["groups"]
-    extra := map[string]authzv1.ExtraValue{}
-    for k, vs := range ai.Labels {
-        if k == "k8s_username" || k == "groups" {
-            continue
-        }
-        extra[k] = authzv1.ExtraValue(vs)
-    }
+	// Extract subject from labels
+	user := ""
+	if vals, ok := ai.Labels["k8s_username"]; ok && len(vals) > 0 {
+		user = vals[0]
+	}
+	if user == "" {
+		return nil, api.NoMatch
+	}
+	groups := ai.Labels["groups"]
+	extra := map[string]authzv1.ExtraValue{}
+	for k, vs := range ai.Labels {
+		if k == "k8s_username" || k == "groups" {
+			continue
+		}
+		extra[k] = authzv1.ExtraValue(vs)
+	}
 
-    ctx, cancel := context.WithTimeout(context.Background(), ka.cfg.RequestTimeout)
-    defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), ka.cfg.RequestTimeout)
+	defer cancel()
 
-    allowed := []string{}
-    for _, action := range ai.Actions {
-        verb, ok := ka.cfg.Verbs[action]
-        if !ok {
-            continue
-        }
-        ns, name := ka.deriveNSAndName(ai)
-        sar := &authzv1.SubjectAccessReview{
-            Spec: authzv1.SubjectAccessReviewSpec{
-                User:   user,
-                Groups: groups,
-                Extra:  extra,
-                ResourceAttributes: &authzv1.ResourceAttributes{
-                    Group:     ka.cfg.APIGroup,
-                    Resource:  ka.cfg.Resource,
-                    Verb:      verb,
-                    Namespace: ns,
-                    Name:      name,
-                },
-            },
-        }
-        res, err := ka.client.AuthorizationV1().SubjectAccessReviews().Create(ctx, sar, metav1.CreateOptions{})
-        if err != nil {
-            glog.Errorf("Kubernetes SAR error: %v", err)
-            return nil, err
-        }
-        if res.Status.Allowed {
-            allowed = append(allowed, action)
-        }
-    }
-    if len(allowed) == 0 {
-        return []string{}, nil
-    }
-    return allowed, nil
+	allowed := []string{}
+	for _, action := range ai.Actions {
+		verb, ok := ka.cfg.Verbs[action]
+		if !ok {
+			continue
+		}
+		ns, name := ka.deriveNSAndName(ai)
+		sar := &authzv1.SubjectAccessReview{
+			Spec: authzv1.SubjectAccessReviewSpec{
+				User:   user,
+				Groups: groups,
+				Extra:  extra,
+				ResourceAttributes: &authzv1.ResourceAttributes{
+					Group:     ka.cfg.APIGroup,
+					Resource:  ka.cfg.Resource,
+					Verb:      verb,
+					Namespace: ns,
+					Name:      name,
+				},
+			},
+		}
+		res, err := ka.client.AuthorizationV1().SubjectAccessReviews().Create(ctx, sar, metav1.CreateOptions{})
+		if err != nil {
+			glog.Errorf("Kubernetes SAR error: %v", err)
+			return nil, err
+		}
+		if res.Status.Allowed {
+			allowed = append(allowed, action)
+		}
+	}
+	if len(allowed) == 0 {
+		return []string{}, nil
+	}
+	return allowed, nil
 }
 
 func (ka *kubernetesAuthz) deriveNSAndName(ai *api.AuthRequestInfo) (string, string) {
-    ns := ""
-    if ka.cfg.Namespaced {
-        switch ka.cfg.Namespace.Mode {
-        case "fixed":
-            ns = ka.cfg.Namespace.Fixed
-        case "from_repo":
-            // Expect repo name like "namespace/image" — take the left part
-            parts := strings.SplitN(ai.Name, "/", 2)
-            if len(parts) == 2 {
-                ns = parts[0]
-            }
-        }
-    }
-    name := ai.Name
-    if ka.cfg.NameTransform == "base32" {
-        enc := base32.StdEncoding.WithPadding(base32.NoPadding)
-        name = strings.ToLower(enc.EncodeToString([]byte(ai.Name)))
-    }
-    return ns, name
+	ns := ""
+	if ka.cfg.Namespaced {
+		switch ka.cfg.Namespace.Mode {
+		case "fixed":
+			ns = ka.cfg.Namespace.Fixed
+		case "from_repo":
+			// Expect repo name like "namespace/image" — take the left part
+			parts := strings.SplitN(ai.Name, "/", 2)
+			if len(parts) == 2 {
+				ns = parts[0]
+			}
+		}
+	}
+	name := ai.Name
+	if ka.cfg.NameTransform == "base32" {
+		enc := base32.StdEncoding.WithPadding(base32.NoPadding)
+		name = strings.ToLower(enc.EncodeToString([]byte(ai.Name)))
+	}
+	return ns, name
 }
-
-
