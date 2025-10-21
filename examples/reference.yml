@@ -231,7 +231,6 @@ kubernetes_authz:
   request_timeout: "5s"
   api_group: "deckhouse.io"
   resource: "payloadrepositories"
-  namespaced: true
   namespace:
     mode: "from_repo" # fixed | from_repo
     # fixed: "d8-system"

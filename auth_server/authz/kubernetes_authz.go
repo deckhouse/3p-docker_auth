@@ -38,9 +38,8 @@ type KubernetesAuthzConfig struct {
 	Kubeconfig     string        `yaml:"kubeconfig,omitempty"`
 	RequestTimeout time.Duration `yaml:"request_timeout,omitempty"`
 
-	APIGroup   string `yaml:"api_group,omitempty"`
-	Resource   string `yaml:"resource,omitempty"`
-	Namespaced bool   `yaml:"namespaced,omitempty"`
+	APIGroup string `yaml:"api_group,omitempty"`
+	Resource string `yaml:"resource,omitempty"`
 
 	Namespace struct {
 		Mode  string `yaml:"mode,omitempty"` // fixed | from_repo
@@ -70,8 +69,8 @@ func (c *KubernetesAuthzConfig) Validate(configKey string) error {
 	if c.Namespace.Mode == "" {
 		c.Namespace.Mode = "from_repo"
 	}
-	if c.Namespace.Mode == "fixed" && c.Namespace.Fixed == "" && c.Namespaced {
-		return fmt.Errorf("%s.namespace.fixed is required when namespaced and mode=fixed", configKey)
+	if c.Namespace.Mode == "fixed" && c.Namespace.Fixed == "" {
+		return fmt.Errorf("%s.namespace.fixed is required when mode=fixed", configKey)
 	}
 	if c.NameTransform == "" {
 		c.NameTransform = "base32"
@@ -172,16 +171,14 @@ func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) 
 
 func (ka *kubernetesAuthz) deriveNSAndName(ai *api.AuthRequestInfo) (string, string) {
 	ns := ""
-	if ka.cfg.Namespaced {
-		switch ka.cfg.Namespace.Mode {
-		case "fixed":
-			ns = ka.cfg.Namespace.Fixed
-		case "from_repo":
-			// Expect repo name like "namespace/image" — take the left part
-			parts := strings.SplitN(ai.Name, "/", 2)
-			if len(parts) == 2 {
-				ns = parts[0]
-			}
+	switch ka.cfg.Namespace.Mode {
+	case "fixed":
+		ns = ka.cfg.Namespace.Fixed
+	case "from_repo":
+		// Expect repo name like "namespace/image" — take the left part
+		parts := strings.SplitN(ai.Name, "/", 2)
+		if len(parts) == 2 {
+			ns = parts[0]
 		}
 	}
 	name := ai.Name
