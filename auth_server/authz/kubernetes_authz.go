@@ -41,6 +41,10 @@ type KubernetesAuthzConfig struct {
 	APIGroup string `yaml:"api_group,omitempty"`
 	Resource string `yaml:"resource,omitempty"`
 
+	// UserLabel is the label key to read Kubernetes username from AuthN labels
+	// Defaults to "k8s_username".
+	UserLabel string `yaml:"user_label,omitempty"`
+
 	NameTransform string `yaml:"name_transform,omitempty"` // base32 | raw
 
 	Verbs map[string]string `yaml:"verbs,omitempty"` // map docker action -> k8s verb
@@ -60,6 +64,9 @@ func (c *KubernetesAuthzConfig) Validate(configKey string) error {
 	}
 	if c.APIGroup == "" || c.Resource == "" {
 		return fmt.Errorf("%s.api_group and %s.resource are required", configKey, configKey)
+	}
+	if c.UserLabel == "" {
+		c.UserLabel = "k8s_username"
 	}
 	if c.NameTransform == "" {
 		c.NameTransform = "base32"
@@ -100,7 +107,7 @@ func (ka *kubernetesAuthz) Name() string { return "Kubernetes RBAC" }
 func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) {
 	// Extract subject from labels
 	user := ""
-	if vals, ok := ai.Labels["k8s_username"]; ok && len(vals) > 0 {
+	if vals, ok := ai.Labels[ka.cfg.UserLabel]; ok && len(vals) > 0 {
 		user = vals[0]
 	}
 	if user == "" {

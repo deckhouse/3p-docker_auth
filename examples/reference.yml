@@ -231,6 +231,8 @@ kubernetes_authz:
   request_timeout: "5s"
   api_group: "deckhouse.io"
   resource: "payloadrepositories"
+  # Label key containing username from AuthN labels (default: k8s_username)
+  user_label: "k8s_username"
   # Namespace is always derived from repo name: "<namespace>/<image>"
   name_transform: "base32" # base32 | raw
   verbs:
