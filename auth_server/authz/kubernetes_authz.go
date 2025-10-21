@@ -41,11 +41,6 @@ type KubernetesAuthzConfig struct {
 	APIGroup string `yaml:"api_group,omitempty"`
 	Resource string `yaml:"resource,omitempty"`
 
-	Namespace struct {
-		Mode  string `yaml:"mode,omitempty"` // fixed | from_repo
-		Fixed string `yaml:"fixed,omitempty"`
-	} `yaml:"namespace,omitempty"`
-
 	NameTransform string `yaml:"name_transform,omitempty"` // base32 | raw
 
 	Verbs map[string]string `yaml:"verbs,omitempty"` // map docker action -> k8s verb
@@ -65,12 +60,6 @@ func (c *KubernetesAuthzConfig) Validate(configKey string) error {
 	}
 	if c.APIGroup == "" || c.Resource == "" {
 		return fmt.Errorf("%s.api_group and %s.resource are required", configKey, configKey)
-	}
-	if c.Namespace.Mode == "" {
-		c.Namespace.Mode = "from_repo"
-	}
-	if c.Namespace.Mode == "fixed" && c.Namespace.Fixed == "" {
-		return fmt.Errorf("%s.namespace.fixed is required when mode=fixed", configKey)
 	}
 	if c.NameTransform == "" {
 		c.NameTransform = "base32"
@@ -171,15 +160,12 @@ func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) 
 
 func (ka *kubernetesAuthz) deriveNSAndName(ai *api.AuthRequestInfo) (string, string) {
 	ns := ""
-	switch ka.cfg.Namespace.Mode {
-	case "fixed":
-		ns = ka.cfg.Namespace.Fixed
-	case "from_repo":
-		// Expect repo name like "namespace/image" — take the left part
-		parts := strings.SplitN(ai.Name, "/", 2)
-		if len(parts) == 2 {
-			ns = parts[0]
-		}
+	// Expect repo name like "namespace/image" — take the left part
+	parts := strings.SplitN(ai.Name, "/", 2)
+	if len(parts) == 2 {
+		ns = parts[0]
+	} else {
+		glog.V(2).Infof("Kubernetes authz: repository name lacks namespace: %q", ai.Name)
 	}
 	name := ai.Name
 	if ka.cfg.NameTransform == "base32" {

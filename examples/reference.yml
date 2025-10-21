@@ -231,9 +231,7 @@ kubernetes_authz:
   request_timeout: "5s"
   api_group: "deckhouse.io"
   resource: "payloadrepositories"
-  namespace:
-    mode: "from_repo" # fixed | from_repo
-    # fixed: "d8-system"
+  # Namespace is always derived from repo name: "<namespace>/<image>"
   name_transform: "base32" # base32 | raw
   verbs:
     pull: "get"
