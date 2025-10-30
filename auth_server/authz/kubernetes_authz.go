@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/base32"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -27,12 +28,12 @@ import (
 
 	"github.com/cesanta/docker_auth/auth_server/api"
 
+	"golang.org/x/time/rate"
 	authzv1 "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-    "golang.org/x/time/rate"
 )
 
 type KubernetesAuthzConfig struct {
@@ -46,10 +47,10 @@ type KubernetesAuthzConfig struct {
 	// Defaults to "k8s_username".
 	UserLabel string `yaml:"user_label,omitempty"`
 
-    RateLimit struct {
-        RPS   float64 `yaml:"rps,omitempty"`
-        Burst int     `yaml:"burst,omitempty"`
-    } `yaml:"rate_limit,omitempty"`
+	RateLimit struct {
+		RPS   float64 `yaml:"rps,omitempty"`
+		Burst int     `yaml:"burst,omitempty"`
+	} `yaml:"rate_limit,omitempty"`
 
 	NameTransform string `yaml:"name_transform,omitempty"` // base32 | raw
 
@@ -57,9 +58,9 @@ type KubernetesAuthzConfig struct {
 }
 
 type kubernetesAuthz struct {
-	cfg    *KubernetesAuthzConfig
-	client *kubernetes.Clientset
-    limiter *rate.Limiter
+	cfg     *KubernetesAuthzConfig
+	client  *kubernetes.Clientset
+	limiter *rate.Limiter
 }
 
 func (c *KubernetesAuthzConfig) Validate(configKey string) error {
@@ -99,16 +100,24 @@ func NewKubernetesAuthz(c *KubernetesAuthzConfig) (api.Authorizer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to build k8s rest config: %w", err)
 	}
-    cs, err := kubernetes.NewForConfig(rc)
+	cs, err := kubernetes.NewForConfig(rc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
-    var lim *rate.Limiter
-    if c.RateLimit.RPS > 0 && c.RateLimit.Burst > 0 {
-        lim = rate.NewLimiter(rate.Limit(c.RateLimit.RPS), c.RateLimit.Burst)
-    }
-    glog.V(1).Infof("Kubernetes authz configured (kubeconfig=%t, group=%s, resource=%s, rate_limit=%v/%d)", c.Kubeconfig != "", c.APIGroup, c.Resource, c.RateLimit.RPS, c.RateLimit.Burst)
-    return &kubernetesAuthz{cfg: c, client: cs, limiter: lim}, nil
+	var lim *rate.Limiter
+	effRPS := c.RateLimit.RPS
+	effBurst := c.RateLimit.Burst
+	if effRPS > 0 || effBurst > 0 {
+		if effRPS <= 0 && effBurst > 0 {
+			effRPS = 1
+		}
+		if effRPS > 0 && effBurst <= 0 {
+			effBurst = max(int(math.Ceil(2*effRPS)), 1)
+		}
+		lim = rate.NewLimiter(rate.Limit(effRPS), effBurst)
+	}
+	glog.V(1).Infof("Kubernetes authz configured (kubeconfig=%t, group=%s, resource=%s, rate_limit=%v/%d)", c.Kubeconfig != "", c.APIGroup, c.Resource, effRPS, effBurst)
+	return &kubernetesAuthz{cfg: c, client: cs, limiter: lim}, nil
 }
 
 func (ka *kubernetesAuthz) Stop() {}
@@ -137,11 +146,11 @@ func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) 
 	defer cancel()
 
 	allowed := []string{}
-    for _, action := range ai.Actions {
-        if ka.limiter != nil && !ka.limiter.Allow() {
-            glog.Warningf("Kubernetes authz rate limited")
-            return nil, fmt.Errorf("rate limited")
-        }
+	for _, action := range ai.Actions {
+		if ka.limiter != nil && !ka.limiter.Allow() {
+			glog.Warningf("Kubernetes authz rate limited")
+			return nil, fmt.Errorf("rate limited")
+		}
 		verb, ok := ka.cfg.Verbs[action]
 		if !ok {
 			continue
