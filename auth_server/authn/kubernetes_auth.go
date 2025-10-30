@@ -26,6 +26,7 @@ import (
 
 	"github.com/cesanta/docker_auth/auth_server/api"
 
+	"golang.org/x/time/rate"
 	authnv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -41,11 +42,16 @@ type KubernetesAuthConfig struct {
 		IncludeGroups bool `yaml:"include_groups,omitempty"`
 		IncludeExtra  bool `yaml:"include_extra,omitempty"`
 	} `yaml:"labels,omitempty"`
+	RateLimit struct {
+		RPS   float64 `yaml:"rps,omitempty"`
+		Burst int     `yaml:"burst,omitempty"`
+	} `yaml:"rate_limit,omitempty"`
 }
 
 type KubernetesAuth struct {
-	cfg    *KubernetesAuthConfig
-	client *kubernetes.Clientset
+	cfg     *KubernetesAuthConfig
+	client  *kubernetes.Clientset
+	limiter *rate.Limiter
 }
 
 func (c *KubernetesAuthConfig) Validate(configKey string) error {
@@ -89,11 +95,19 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
-	glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t)", c.Kubeconfig != "")
-	return &KubernetesAuth{cfg: c, client: cs}, nil
+	var lim *rate.Limiter
+	if c.RateLimit.RPS > 0 && c.RateLimit.Burst > 0 {
+		lim = rate.NewLimiter(rate.Limit(c.RateLimit.RPS), c.RateLimit.Burst)
+	}
+	glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t, rate_limit=%v/%d)", c.Kubeconfig != "", c.RateLimit.RPS, c.RateLimit.Burst)
+	return &KubernetesAuth{cfg: c, client: cs, limiter: lim}, nil
 }
 
 func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString) (bool, api.Labels, error) {
+	if ka.limiter != nil && !ka.limiter.Allow() {
+		glog.Warningf("Kubernetes authn rate limited")
+		return false, nil, fmt.Errorf("rate limited")
+	}
 	if password == "" {
 		return false, nil, api.NoMatch
 	}
