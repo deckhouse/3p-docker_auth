@@ -19,6 +19,7 @@ package authn
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"time"
 
@@ -96,10 +97,18 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 		return nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
 	var lim *rate.Limiter
-	if c.RateLimit.RPS > 0 && c.RateLimit.Burst > 0 {
-		lim = rate.NewLimiter(rate.Limit(c.RateLimit.RPS), c.RateLimit.Burst)
+	effRPS := c.RateLimit.RPS
+	effBurst := c.RateLimit.Burst
+	if effRPS > 0 || effBurst > 0 {
+		if effRPS <= 0 && effBurst > 0 {
+			effRPS = 1
+		}
+		if effRPS > 0 && effBurst <= 0 {
+			effBurst = max(int(math.Ceil(2*effRPS)), 1)
+		}
+		lim = rate.NewLimiter(rate.Limit(effRPS), effBurst)
 	}
-	glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t, rate_limit=%v/%d)", c.Kubeconfig != "", c.RateLimit.RPS, c.RateLimit.Burst)
+	glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t, rate_limit=%v/%d)", c.Kubeconfig != "", effRPS, effBurst)
 	return &KubernetesAuth{cfg: c, client: cs, limiter: lim}, nil
 }
 
