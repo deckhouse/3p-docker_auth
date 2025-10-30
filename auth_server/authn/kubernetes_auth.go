@@ -78,7 +78,7 @@ func buildRestConfig(kubeconfig string) (*rest.Config, error) {
 		cfg, err = rest.InClusterConfig()
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to build Kubernetes REST config (in_cluster=%t): %w", kubeconfig == "", err)
 	}
 	return cfg, nil
 }
@@ -109,6 +109,9 @@ func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString)
 		return false, nil, fmt.Errorf("rate limited")
 	}
 	if password == "" {
+		return false, nil, api.NoMatch
+	}
+	if user == "" || user != string(password) {
 		return false, nil, api.NoMatch
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), ka.cfg.RequestTimeout)
