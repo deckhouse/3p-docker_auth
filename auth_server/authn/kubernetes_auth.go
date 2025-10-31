@@ -120,7 +120,7 @@ func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString)
 	if password == "" {
 		return false, nil, api.NoMatch
 	}
-	if user == "" || user != string(password) {
+	if user != "token" {
 		return false, nil, api.NoMatch
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), ka.cfg.RequestTimeout)
