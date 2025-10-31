@@ -125,6 +125,9 @@ func (ka *kubernetesAuthz) Stop() {}
 func (ka *kubernetesAuthz) Name() string { return "Kubernetes RBAC" }
 
 func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) {
+	if ai.Account != "token" {
+		return nil, api.NoMatch
+	}
 	// Extract subject from labels
 	user := ""
 	if vals, ok := ai.Labels[ka.cfg.UserLabel]; ok && len(vals) > 0 {
