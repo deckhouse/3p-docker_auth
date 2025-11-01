@@ -19,7 +19,6 @@ package authn
 import (
 	"context"
 	"fmt"
-	"math"
 	"os"
 	"time"
 
@@ -27,7 +26,6 @@ import (
 
 	"github.com/cesanta/docker_auth/auth_server/api"
 
-	"golang.org/x/time/rate"
 	authnv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -50,9 +48,8 @@ type KubernetesAuthConfig struct {
 }
 
 type KubernetesAuth struct {
-	cfg     *KubernetesAuthConfig
-	client  *kubernetes.Clientset
-	limiter *rate.Limiter
+	cfg    *KubernetesAuthConfig
+	client *kubernetes.Clientset
 }
 
 func (c *KubernetesAuthConfig) Validate(configKey string) error {
@@ -92,31 +89,19 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to build k8s rest config: %w", err)
 	}
+	if c.RateLimit.RPS > 0 && c.RateLimit.Burst > 0 {
+		rc.QPS = float32(c.RateLimit.RPS)
+		rc.Burst = c.RateLimit.Burst
+	}
 	cs, err := kubernetes.NewForConfig(rc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
-	var lim *rate.Limiter
-	effRPS := c.RateLimit.RPS
-	effBurst := c.RateLimit.Burst
-	if effRPS > 0 || effBurst > 0 {
-		if effRPS <= 0 && effBurst > 0 {
-			effRPS = 1
-		}
-		if effRPS > 0 && effBurst <= 0 {
-			effBurst = max(int(math.Ceil(2*effRPS)), 1)
-		}
-		lim = rate.NewLimiter(rate.Limit(effRPS), effBurst)
-	}
-	glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t, rate_limit=%v/%d)", c.Kubeconfig != "", effRPS, effBurst)
-	return &KubernetesAuth{cfg: c, client: cs, limiter: lim}, nil
+	glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t, rest_qps_burst=%v/%d)", c.Kubeconfig != "", c.RateLimit.RPS, c.RateLimit.Burst)
+	return &KubernetesAuth{cfg: c, client: cs}, nil
 }
 
 func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString) (bool, api.Labels, error) {
-	if ka.limiter != nil && !ka.limiter.Allow() {
-		glog.Warningf("Kubernetes authn rate limited")
-		return false, nil, fmt.Errorf("rate limited")
-	}
 	if password == "" {
 		return false, nil, api.NoMatch
 	}
