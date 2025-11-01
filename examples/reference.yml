@@ -241,6 +241,9 @@ kubernetes_authz:
   # Label key containing username from AuthN labels (default: k8s_username)
   user_label: "k8s_username"
   # Optional outgoing rate-limit for SAR calls
+  # To enable, set BOTH rps and burst to values > 0.
+  # If omitted or any value <= 0, no extra throttling is applied here
+  # and the underlying Kubernetes client uses its own defaults (rest.Config.QPS/Burst).
   rate_limit:
     rps: 50
     burst: 100
