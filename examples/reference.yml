@@ -220,11 +220,10 @@ kubernetes_auth:
   # Request timeout when calling TokenReview API.
   request_timeout: "5s"
   # Optional outgoing rate-limit for TokenReview calls
-  # To enable, set BOTH rps and burst to values > 0.
-  # If omitted or any value <= 0, no extra throttling is applied here
-  # and the underlying Kubernetes client uses its own defaults.
+  # Set qps and burst independently. If a value <= 0, the client-go
+  # defaults are used (QPS=5, Burst=10). Leaving both unset keeps defaults.
   rate_limit:
-    rps: 10
+    qps: 10
     burst: 20
   # Map k8s user groups/extra to labels for ACL matching
   labels:
