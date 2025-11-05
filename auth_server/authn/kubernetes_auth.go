@@ -85,31 +85,33 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 	if err := c.Validate("kubernetes_auth"); err != nil {
 		return nil, err
 	}
+
 	rc, err := buildRestConfig(c.Kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build Kubernetes REST config: %w", err)
 	}
+
 	if c.RateLimit.QPS > 0 {
 		rc.QPS = c.RateLimit.QPS
 	}
 	if c.RateLimit.Burst > 0 {
 		rc.Burst = c.RateLimit.Burst
 	}
+
 	cs, err := kubernetes.NewForConfig(rc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
+
 	glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t, rest_qps_burst=%v/%d)", c.Kubeconfig != "", c.RateLimit.QPS, c.RateLimit.Burst)
 	return &KubernetesAuth{cfg: c, client: cs}, nil
 }
 
 func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString) (bool, api.Labels, error) {
-	if user != "token" {
+	if user != "token" || password == "" {
 		return false, nil, api.NoMatch
 	}
-	if password == "" {
-		return false, nil, api.NoMatch
-	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), ka.cfg.RequestTimeout)
 	defer cancel()
 
@@ -129,10 +131,10 @@ func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString)
 		return false, nil, nil
 	}
 
-    labels := api.Labels{}
-    if res.Status.User.Username != "" {
-        labels["k8s_username"] = []string{res.Status.User.Username}
-    }
+	labels := api.Labels{}
+	if res.Status.User.Username != "" {
+		labels["k8s_username"] = []string{res.Status.User.Username}
+	}
 	if ka.cfg.Labels.IncludeGroups && len(res.Status.User.Groups) > 0 {
 		labels["groups"] = append([]string(nil), res.Status.User.Groups...)
 	}
