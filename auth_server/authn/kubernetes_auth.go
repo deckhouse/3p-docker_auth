@@ -42,7 +42,7 @@ type KubernetesAuthConfig struct {
 		IncludeExtra  bool `yaml:"include_extra,omitempty"`
 	} `yaml:"labels,omitempty"`
 	RateLimit struct {
-		RPS   float64 `yaml:"rps,omitempty"`
+		QPS   float32 `yaml:"qps,omitempty"`
 		Burst int     `yaml:"burst,omitempty"`
 	} `yaml:"rate_limit,omitempty"`
 }
@@ -87,25 +87,27 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 	}
 	rc, err := buildRestConfig(c.Kubeconfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build k8s rest config: %w", err)
+		return nil, fmt.Errorf("failed to build Kubernetes REST config: %w", err)
 	}
-	if c.RateLimit.RPS > 0 && c.RateLimit.Burst > 0 {
-		rc.QPS = float32(c.RateLimit.RPS)
+	if c.RateLimit.QPS > 0 {
+		rc.QPS = c.RateLimit.QPS
+	}
+	if c.RateLimit.Burst > 0 {
 		rc.Burst = c.RateLimit.Burst
 	}
 	cs, err := kubernetes.NewForConfig(rc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
-	glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t, rest_qps_burst=%v/%d)", c.Kubeconfig != "", c.RateLimit.RPS, c.RateLimit.Burst)
+	glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t, rest_qps_burst=%v/%d)", c.Kubeconfig != "", c.RateLimit.QPS, c.RateLimit.Burst)
 	return &KubernetesAuth{cfg: c, client: cs}, nil
 }
 
 func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString) (bool, api.Labels, error) {
-	if password == "" {
+	if user != "token" {
 		return false, nil, api.NoMatch
 	}
-	if user != "token" {
+	if password == "" {
 		return false, nil, api.NoMatch
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), ka.cfg.RequestTimeout)
