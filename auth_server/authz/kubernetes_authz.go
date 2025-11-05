@@ -46,7 +46,7 @@ type KubernetesAuthzConfig struct {
 	UserLabel string `yaml:"user_label,omitempty"`
 
 	RateLimit struct {
-		RPS   float64 `yaml:"rps,omitempty"`
+		QPS   float32 `yaml:"qps,omitempty"`
 		Burst int     `yaml:"burst,omitempty"`
 	} `yaml:"rate_limit,omitempty"`
 
@@ -95,18 +95,19 @@ func NewKubernetesAuthz(c *KubernetesAuthzConfig) (api.Authorizer, error) {
 	}
 	rc, err := buildRestConfig(c.Kubeconfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build k8s rest config: %w", err)
+		return nil, fmt.Errorf("failed to build Kubernetes REST config: %w", err)
 	}
-	// Apply rate limits to the REST client if explicitly configured; otherwise use client-go defaults
-	if c.RateLimit.RPS > 0 && c.RateLimit.Burst > 0 {
-		rc.QPS = float32(c.RateLimit.RPS)
+	if c.RateLimit.QPS > 0 {
+		rc.QPS = c.RateLimit.QPS
+	}
+	if c.RateLimit.Burst > 0 {
 		rc.Burst = c.RateLimit.Burst
 	}
 	cs, err := kubernetes.NewForConfig(rc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
-	glog.V(1).Infof("Kubernetes authz configured (kubeconfig=%t, group=%s, resource=%s, rest_qps_burst=%v/%d)", c.Kubeconfig != "", c.APIGroup, c.Resource, c.RateLimit.RPS, c.RateLimit.Burst)
+	glog.V(1).Infof("Kubernetes authz configured (kubeconfig=%t, group=%s, resource=%s, rest_qps_burst=%v/%d)", c.Kubeconfig != "", c.APIGroup, c.Resource, c.RateLimit.QPS, c.RateLimit.Burst)
 	return &kubernetesAuthz{cfg: c, client: cs}, nil
 }
 
