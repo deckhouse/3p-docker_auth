@@ -132,9 +132,6 @@ func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString)
 	}
 
 	labels := api.Labels{}
-	if res.Status.User.Username != "" {
-		labels["k8s_username"] = []string{res.Status.User.Username}
-	}
 	if ka.cfg.Labels.IncludeGroups && len(res.Status.User.Groups) > 0 {
 		labels["groups"] = append([]string(nil), res.Status.User.Groups...)
 	}
