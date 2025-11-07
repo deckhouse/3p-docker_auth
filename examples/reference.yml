@@ -212,19 +212,23 @@ oidc_auth:
     - openid
     - email
 
-# Kubernetes authentication.
-# Validates presented password as a Kubernetes bearer token via TokenReview.
+# Kubernetes authentication via Kubernetes webhook authenticator.
+# The password from `docker login` is treated as a Bearer token and validated
+# through the Kubernetes TokenReview API (under the hood of the webhook plugin).
+# Results are cached by the authenticator.
 kubernetes_auth:
   # Optional path to kubeconfig. If empty, in-cluster config is used.
   # kubeconfig: "/path/to/kubeconfig"
   webhook:
+    # How long to wait for the webhook call (TokenReview) before timing out.
     request_timeout: "5s"
     cache:
+      # TTL for successful/unsuccessful authentication results. If omitted or <= 0,
+      # library defaults are used (2m for both).
       success_ttl: "2m"
       failure_ttl: "2m"
-  # Optional outgoing rate-limit for TokenReview calls
-  # Set qps and burst independently. If a value <= 0, the client-go
-  # defaults are used (QPS=5, Burst=10). Leaving both unset keeps defaults.
+  # Optional client-go throttling for outgoing Kubernetes requests
+  # If qps/burst are <= 0, client-go defaults are used (QPS=5, Burst=10).
   rate_limit:
     qps: 10
     burst: 20
