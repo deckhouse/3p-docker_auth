@@ -217,13 +217,11 @@ oidc_auth:
 kubernetes_auth:
   # Optional path to kubeconfig. If empty, in-cluster config is used.
   # kubeconfig: "/path/to/kubeconfig"
-  # Request timeout when calling TokenReview API.
-  request_timeout: "5s"
-  # Cache settings for token authentication (webhook authenticator cache)
-  # If not set or <= 0, Kubernetes defaults are used (2m for success/failure)
-  cache:
-    success_ttl: "2m"
-    failure_ttl: "2m"
+  webhook:
+    request_timeout: "5s"
+    cache:
+      success_ttl: "2m"
+      failure_ttl: "2m"
   # Optional outgoing rate-limit for TokenReview calls
   # Set qps and burst independently. If a value <= 0, the client-go
   # defaults are used (QPS=5, Burst=10). Leaving both unset keeps defaults.
