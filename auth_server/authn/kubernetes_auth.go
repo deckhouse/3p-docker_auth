@@ -30,7 +30,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"k8s.io/apimachinery/pkg/util/wait"
 	apiauthn "k8s.io/apiserver/pkg/authentication/authenticator"
 	tokencache "k8s.io/apiserver/pkg/authentication/token/cache"
 	webhookauthn "k8s.io/apiserver/plugin/pkg/authenticator/token/webhook"
@@ -117,11 +116,12 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
-	rb := wait.Backoff{Duration: 500 * time.Millisecond, Factor: 1.2, Steps: 10}
 	tokenAuth, err := webhookauthn.NewFromInterface(
 		cs.AuthenticationV1(),
 		[]string{},
-		rb,
+		// Use upstream default webhook retry backoff.
+		// Defaults taken from k8s.io/apiserver/plugin/pkg/authenticator/token/webhook.DefaultRetryBackoff().
+		*webhookauthn.DefaultRetryBackoff(),
 		c.Limits.RequestTimeout,
 		webhookauthn.AuthenticatorMetrics{
 			RecordRequestTotal:   func(ctx context.Context, code string) {},
