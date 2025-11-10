@@ -63,15 +63,15 @@ type KubernetesAuth struct {
 var (
 	k8sAuthnRequestsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "docker_auth_k8s_authn_requests_total",
-			Help: "Total number of Kubernetes TokenReview calls performed by docker_auth, labeled by HTTP status code or <error>.",
+			Name: "registry_auth_k8s_authn_requests_total",
+			Help: "Total number of Kubernetes TokenReview calls performed by registry authentication, labeled by HTTP status code or <error>.",
 		},
 		[]string{"code"},
 	)
 	k8sAuthnRequestLatencySeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "docker_auth_k8s_authn_request_latency_seconds",
-			Help:    "Latency of Kubernetes TokenReview calls performed by docker_auth, in seconds, labeled by HTTP status code or <error>.",
+			Name:    "registry_auth_k8s_authn_request_latency_seconds",
+			Help:    "Latency of Kubernetes TokenReview calls performed by registry authentication, in seconds, labeled by HTTP status code or <error>.",
 			Buckets: prometheus.DefBuckets,
 		},
 		[]string{"code"},
@@ -86,16 +86,6 @@ func init() {
 func (c *KubernetesAuthConfig) Validate(configKey string) error {
 	if c == nil {
 		return fmt.Errorf("%s is nil", configKey)
-	}
-	// Defaults for limits timeout and cache TTLs
-	if c.Limits.RequestTimeout <= 0 {
-		c.Limits.RequestTimeout = 5 * time.Second
-	}
-	if c.Cache.SuccessTTL <= 0 {
-		c.Cache.SuccessTTL = 2 * time.Minute
-	}
-	if c.Cache.FailureTTL <= 0 {
-		c.Cache.FailureTTL = 2 * time.Minute
 	}
 	return nil
 }
@@ -143,8 +133,6 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 	tokenAuth, err := webhookauthn.NewFromInterface(
 		cs.AuthenticationV1(),
 		[]string{},
-		// Use upstream default webhook retry backoff.
-		// Defaults taken from k8s.io/apiserver/plugin/pkg/authenticator/token/webhook.DefaultRetryBackoff().
 		*webhookauthn.DefaultRetryBackoff(),
 		c.Limits.RequestTimeout,
 		webhookauthn.AuthenticatorMetrics{
