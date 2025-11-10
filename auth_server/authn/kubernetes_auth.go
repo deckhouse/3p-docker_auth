@@ -26,6 +26,7 @@ import (
 
 	"github.com/cesanta/docker_auth/auth_server/api"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -57,6 +58,29 @@ type KubernetesAuth struct {
 	cfg                *KubernetesAuthConfig
 	client             *kubernetes.Clientset
 	tokenAuthenticator apiauthn.Token
+}
+
+var (
+	k8sAuthnRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "docker_auth_k8s_authn_requests_total",
+			Help: "Total number of Kubernetes TokenReview calls performed by docker_auth, labeled by HTTP status code or <error>.",
+		},
+		[]string{"code"},
+	)
+	k8sAuthnRequestLatencySeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "docker_auth_k8s_authn_request_latency_seconds",
+			Help:    "Latency of Kubernetes TokenReview calls performed by docker_auth, in seconds, labeled by HTTP status code or <error>.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"code"},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(k8sAuthnRequestsTotal)
+	prometheus.MustRegister(k8sAuthnRequestLatencySeconds)
 }
 
 func (c *KubernetesAuthConfig) Validate(configKey string) error {
@@ -124,8 +148,12 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 		*webhookauthn.DefaultRetryBackoff(),
 		c.Limits.RequestTimeout,
 		webhookauthn.AuthenticatorMetrics{
-			RecordRequestTotal:   func(ctx context.Context, code string) {},
-			RecordRequestLatency: func(ctx context.Context, code string, latency float64) {},
+			RecordRequestTotal: func(ctx context.Context, code string) {
+				k8sAuthnRequestsTotal.WithLabelValues(code).Inc()
+			},
+			RecordRequestLatency: func(ctx context.Context, code string, latency float64) {
+				k8sAuthnRequestLatencySeconds.WithLabelValues(code).Observe(latency)
+			},
 		},
 	)
 	if err != nil {
