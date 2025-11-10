@@ -43,17 +43,15 @@ type KubernetesAuthConfig struct {
 		IncludeGroups bool `yaml:"include_groups,omitempty"`
 		IncludeExtra  bool `yaml:"include_extra,omitempty"`
 	} `yaml:"labels,omitempty"`
-	RateLimit struct {
-		QPS   float32 `yaml:"qps,omitempty"`
-		Burst int     `yaml:"burst,omitempty"`
-	} `yaml:"rate_limit,omitempty"`
-	TokenReview struct {
+	Limits struct {
+		QPS            float32       `yaml:"qps,omitempty"`
+		Burst          int           `yaml:"burst,omitempty"`
 		RequestTimeout time.Duration `yaml:"request_timeout,omitempty"`
-		Cache          struct {
-			SuccessTTL time.Duration `yaml:"success_ttl,omitempty"`
-			FailureTTL time.Duration `yaml:"failure_ttl,omitempty"`
-		} `yaml:"cache,omitempty"`
-	} `yaml:"token_review,omitempty"`
+	} `yaml:"limits,omitempty"`
+	Cache struct {
+		SuccessTTL time.Duration `yaml:"success_ttl,omitempty"`
+		FailureTTL time.Duration `yaml:"failure_ttl,omitempty"`
+	} `yaml:"cache,omitempty"`
 }
 
 type KubernetesAuth struct {
@@ -66,15 +64,15 @@ func (c *KubernetesAuthConfig) Validate(configKey string) error {
 	if c == nil {
 		return fmt.Errorf("%s is nil", configKey)
 	}
-	// Defaults for webhook timeout and cache TTLs
-	if c.TokenReview.RequestTimeout <= 0 {
-		c.TokenReview.RequestTimeout = 5 * time.Second
+	// Defaults for limits timeout and cache TTLs
+	if c.Limits.RequestTimeout <= 0 {
+		c.Limits.RequestTimeout = 5 * time.Second
 	}
-	if c.TokenReview.Cache.SuccessTTL <= 0 {
-		c.TokenReview.Cache.SuccessTTL = 2 * time.Minute
+	if c.Cache.SuccessTTL <= 0 {
+		c.Cache.SuccessTTL = 2 * time.Minute
 	}
-	if c.TokenReview.Cache.FailureTTL <= 0 {
-		c.TokenReview.Cache.FailureTTL = 2 * time.Minute
+	if c.Cache.FailureTTL <= 0 {
+		c.Cache.FailureTTL = 2 * time.Minute
 	}
 	return nil
 }
@@ -108,11 +106,11 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 		return nil, fmt.Errorf("failed to build Kubernetes REST config: %w", err)
 	}
 
-	if c.RateLimit.QPS > 0 {
-		rc.QPS = c.RateLimit.QPS
+	if c.Limits.QPS > 0 {
+		rc.QPS = c.Limits.QPS
 	}
-	if c.RateLimit.Burst > 0 {
-		rc.Burst = c.RateLimit.Burst
+	if c.Limits.Burst > 0 {
+		rc.Burst = c.Limits.Burst
 	}
 
 	cs, err := kubernetes.NewForConfig(rc)
@@ -124,7 +122,7 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 		cs.AuthenticationV1(),
 		[]string{},
 		rb,
-		c.TokenReview.RequestTimeout,
+		c.Limits.RequestTimeout,
 		webhookauthn.AuthenticatorMetrics{
 			RecordRequestTotal:   func(ctx context.Context, code string) {},
 			RecordRequestLatency: func(ctx context.Context, code string, latency float64) {},
@@ -133,9 +131,9 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create webhook token authenticator: %w", err)
 	}
-	cachingAuth := tokencache.New(tokenAuth, false, c.TokenReview.Cache.SuccessTTL, c.TokenReview.Cache.FailureTTL)
+	cachingAuth := tokencache.New(tokenAuth, false, c.Cache.SuccessTTL, c.Cache.FailureTTL)
 
-	glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t, rest_qps_burst=%v/%d, cache_ttl=%s/%s)", c.Kubeconfig != "", c.RateLimit.QPS, c.RateLimit.Burst, c.TokenReview.Cache.SuccessTTL, c.TokenReview.Cache.FailureTTL)
+	glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t, rest_qps_burst=%v/%d, cache_ttl=%s/%s)", c.Kubeconfig != "", c.Limits.QPS, c.Limits.Burst, c.Cache.SuccessTTL, c.Cache.FailureTTL)
 	return &KubernetesAuth{cfg: c, client: cs, tokenAuthenticator: cachingAuth}, nil
 }
 
@@ -144,7 +142,7 @@ func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString)
 		return false, nil, api.NoMatch
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), ka.cfg.TokenReview.RequestTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), ka.cfg.Limits.RequestTimeout)
 	defer cancel()
 
 	authResp, ok, err := ka.tokenAuthenticator.AuthenticateToken(ctx, string(password))

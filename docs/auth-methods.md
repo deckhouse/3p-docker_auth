@@ -38,16 +38,15 @@ Enable in config:
 kubernetes_auth:
   # Use in-cluster config by default; or specify kubeconfig path.
   # kubeconfig: "/path/to/kubeconfig"
-  token_review:
+  limits:
     request_timeout: "5s"
-    cache:
-      success_ttl: "2m"
-      failure_ttl: "2m"
-  # Optional client-go throttling for outgoing Kubernetes requests.
-  # If qps/burst are <= 0, client-go defaults are used (QPS=5, Burst=10).
-  rate_limit:
+    # Optional client-go throttling for outgoing Kubernetes requests.
+    # If qps/burst are <= 0, client-go defaults are used (QPS=5, Burst=10).
     qps: 10
     burst: 20
+  cache:
+    success_ttl: "2m"
+    failure_ttl: "2m"
   labels:
     include_groups: true   # expose k8s user groups as labels["groups"]
     include_extra: false   # expose TokenReview user.extra[*] as labels
