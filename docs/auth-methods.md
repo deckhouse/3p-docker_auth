@@ -38,10 +38,21 @@ Enable in config:
 kubernetes_auth:
   # Use in-cluster config by default; or specify kubeconfig path.
   # kubeconfig: "/path/to/kubeconfig"
-  request_timeout: "5s"
+  token_review:
+    request_timeout: "5s"
+    cache:
+      success_ttl: "2m"
+      failure_ttl: "2m"
+  # Optional client-go throttling for outgoing Kubernetes requests.
+  # If qps/burst are <= 0, client-go defaults are used (QPS=5, Burst=10).
+  rate_limit:
+    qps: 10
+    burst: 20
   labels:
     include_groups: true   # expose k8s user groups as labels["groups"]
     include_extra: false   # expose TokenReview user.extra[*] as labels
+  # Note: when using Kubernetes auth, the docker login username must be "token"
+  # and the password must be a valid Kubernetes bearer token.
 ```
 
 Required RBAC for docker-auth's ServiceAccount:

@@ -219,7 +219,7 @@ oidc_auth:
 kubernetes_auth:
   # Optional path to kubeconfig. If empty, in-cluster config is used.
   # kubeconfig: "/path/to/kubeconfig"
-  webhook:
+  token_review:
     # How long to wait for the webhook call (TokenReview) before timing out.
     request_timeout: "5s"
     cache:
