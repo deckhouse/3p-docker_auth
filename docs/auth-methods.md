@@ -84,8 +84,8 @@ kubernetes_authz:
 
   # Parameters for constructing the SubjectAccessReview
   review:
-    api_group: "deckhouse.io"
-    resource: "payloadrepositories"
+    api_group: "registry.deckhouse.io"
+    resource: "payloadrepositorytags"
     # Label key containing username from AuthN labels (default: k8s_username)
     user_label: "k8s_username"
     # Transform repo name before putting into ResourceName?
