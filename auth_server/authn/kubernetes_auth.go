@@ -26,38 +26,66 @@ import (
 
 	"github.com/cesanta/docker_auth/auth_server/api"
 
-	authnv1 "k8s.io/api/authentication/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+
+	apiauthn "k8s.io/apiserver/pkg/authentication/authenticator"
+	tokencache "k8s.io/apiserver/pkg/authentication/token/cache"
+	webhookauthn "k8s.io/apiserver/plugin/pkg/authenticator/token/webhook"
 )
 
 // KubernetesAuthConfig configures the Kubernetes authenticator.
 type KubernetesAuthConfig struct {
-	Kubeconfig     string        `yaml:"kubeconfig,omitempty"`
-	RequestTimeout time.Duration `yaml:"request_timeout,omitempty"`
-	Labels         struct {
+	Kubeconfig string `yaml:"kubeconfig,omitempty"`
+	Labels     struct {
 		IncludeGroups bool `yaml:"include_groups,omitempty"`
 		IncludeExtra  bool `yaml:"include_extra,omitempty"`
 	} `yaml:"labels,omitempty"`
-	RateLimit struct {
-		QPS   float32 `yaml:"qps,omitempty"`
-		Burst int     `yaml:"burst,omitempty"`
-	} `yaml:"rate_limit,omitempty"`
+	Limits struct {
+		QPS            float32       `yaml:"qps,omitempty"`
+		Burst          int           `yaml:"burst,omitempty"`
+		RequestTimeout time.Duration `yaml:"request_timeout,omitempty"`
+	} `yaml:"limits,omitempty"`
+	Cache struct {
+		SuccessTTL time.Duration `yaml:"success_ttl,omitempty"`
+		FailureTTL time.Duration `yaml:"failure_ttl,omitempty"`
+	} `yaml:"cache,omitempty"`
 }
 
 type KubernetesAuth struct {
-	cfg    *KubernetesAuthConfig
-	client *kubernetes.Clientset
+	cfg                *KubernetesAuthConfig
+	client             *kubernetes.Clientset
+	tokenAuthenticator apiauthn.Token
+}
+
+var (
+	k8sAuthnRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "registry_auth_k8s_authn_requests_total",
+			Help: "Total number of Kubernetes TokenReview calls performed by registry authentication, labeled by HTTP status code or <error>.",
+		},
+		[]string{"code"},
+	)
+	k8sAuthnRequestLatencySeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "registry_auth_k8s_authn_request_latency_seconds",
+			Help:    "Latency of Kubernetes TokenReview calls performed by registry authentication, in seconds, labeled by HTTP status code or <error>.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"code"},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(k8sAuthnRequestsTotal)
+	prometheus.MustRegister(k8sAuthnRequestLatencySeconds)
 }
 
 func (c *KubernetesAuthConfig) Validate(configKey string) error {
 	if c == nil {
 		return fmt.Errorf("%s is nil", configKey)
-	}
-	if c.RequestTimeout <= 0 {
-		c.RequestTimeout = 5 * time.Second
 	}
 	return nil
 }
@@ -85,67 +113,88 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 	if err := c.Validate("kubernetes_auth"); err != nil {
 		return nil, err
 	}
+
 	rc, err := buildRestConfig(c.Kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build Kubernetes REST config: %w", err)
 	}
-	if c.RateLimit.QPS > 0 {
-		rc.QPS = c.RateLimit.QPS
+
+	if c.Limits.QPS > 0 {
+		rc.QPS = c.Limits.QPS
 	}
-	if c.RateLimit.Burst > 0 {
-		rc.Burst = c.RateLimit.Burst
+	if c.Limits.Burst > 0 {
+		rc.Burst = c.Limits.Burst
 	}
+
 	cs, err := kubernetes.NewForConfig(rc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
-	glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t, rest_qps_burst=%v/%d)", c.Kubeconfig != "", c.RateLimit.QPS, c.RateLimit.Burst)
-	return &KubernetesAuth{cfg: c, client: cs}, nil
+
+	tokenAuth, err := webhookauthn.NewFromInterface(
+		cs.AuthenticationV1(),
+		[]string{},
+		*webhookauthn.DefaultRetryBackoff(),
+		c.Limits.RequestTimeout,
+		webhookauthn.AuthenticatorMetrics{
+			RecordRequestTotal: func(ctx context.Context, code string) {
+				k8sAuthnRequestsTotal.WithLabelValues(code).Inc()
+			},
+			RecordRequestLatency: func(ctx context.Context, code string, latency float64) {
+				k8sAuthnRequestLatencySeconds.WithLabelValues(code).Observe(latency)
+			},
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create webhook token authenticator: %w", err)
+	}
+	cachingAuth := tokencache.New(tokenAuth, false, c.Cache.SuccessTTL, c.Cache.FailureTTL)
+
+	glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t, rest_qps_burst=%v/%d, cache_ttl=%s/%s)", c.Kubeconfig != "", c.Limits.QPS, c.Limits.Burst, c.Cache.SuccessTTL, c.Cache.FailureTTL)
+	return &KubernetesAuth{cfg: c, client: cs, tokenAuthenticator: cachingAuth}, nil
 }
 
 func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString) (bool, api.Labels, error) {
-	if user != "token" {
+	if user != "token" || password == "" {
 		return false, nil, api.NoMatch
 	}
-	if password == "" {
-		return false, nil, api.NoMatch
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), ka.cfg.RequestTimeout)
+
+	ctx, cancel := context.WithTimeout(context.Background(), ka.cfg.Limits.RequestTimeout)
 	defer cancel()
 
-	tr := &authnv1.TokenReview{
-		Spec: authnv1.TokenReviewSpec{
-			Token: string(password),
-		},
-	}
-
-	res, err := ka.client.AuthenticationV1().TokenReviews().Create(ctx, tr, metav1.CreateOptions{})
+	authResp, ok, err := ka.tokenAuthenticator.AuthenticateToken(ctx, string(password))
 	if err != nil {
-		glog.Errorf("k8s TokenReview error: %v", err)
+		glog.Errorf("k8s token authenticator error: %v", err)
 		return false, nil, err
 	}
-	if res == nil || !res.Status.Authenticated {
+	if !ok || authResp == nil || authResp.User == nil {
 		glog.V(2).Infof("Kubernetes authn failed for user=%q", user)
 		return false, nil, nil
 	}
 
-    labels := api.Labels{}
-    if res.Status.User.Username != "" {
-        labels["k8s_username"] = []string{res.Status.User.Username}
-    }
-	if ka.cfg.Labels.IncludeGroups && len(res.Status.User.Groups) > 0 {
-		labels["groups"] = append([]string(nil), res.Status.User.Groups...)
+	labels := api.Labels{}
+
+	// Added for k8s-authz support: preserve username in labels
+	if username := authResp.User.GetName(); username != "" {
+		labels["k8s_username"] = []string{username}
 	}
-	if ka.cfg.Labels.IncludeExtra && res.Status.User.Extra != nil {
-		for k, v := range res.Status.User.Extra {
-			// v is ExtraValue ([]string)
-			if len(v) > 0 {
-				labels[k] = append([]string(nil), v...)
+
+	if ka.cfg.Labels.IncludeGroups {
+		if groups := authResp.User.GetGroups(); len(groups) > 0 {
+			labels["groups"] = append([]string(nil), groups...)
+		}
+	}
+	if ka.cfg.Labels.IncludeExtra {
+		if extra := authResp.User.GetExtra(); extra != nil {
+			for k, v := range extra {
+				if len(v) > 0 {
+					labels[k] = append([]string(nil), v...)
+				}
 			}
 		}
 	}
 
-	glog.V(1).Infof("Kubernetes authn success: %s", res.Status.User.Username)
+	glog.V(1).Infof("Kubernetes authn success: %s", authResp.User.GetName())
 	return true, labels, nil
 }
 

@@ -212,19 +212,26 @@ oidc_auth:
     - openid
     - email
 
-# Kubernetes authentication.
-# Validates presented password as a Kubernetes bearer token via TokenReview.
+# Kubernetes authentication via Kubernetes TokenReview API.
+# The password from `docker login` is treated as a Bearer token and validated
+# using Kubernetes TokenReview. Results can be cached to reduce load on the API server.
 kubernetes_auth:
   # Optional path to kubeconfig. If empty, in-cluster config is used.
   # kubeconfig: "/path/to/kubeconfig"
-  # Request timeout when calling TokenReview API.
-  request_timeout: "5s"
-  # Optional outgoing rate-limit for TokenReview calls
-  # Set qps and burst independently. If a value <= 0, the client-go
-  # defaults are used (QPS=5, Burst=10). Leaving both unset keeps defaults.
-  rate_limit:
+  # Limits for Kubernetes calls (client-go throttling + request timeout)
+  limits:
+    # How long to wait for the TokenReview call before timing out.
+    request_timeout: "5s"
+    # Optional client-go throttling for outgoing Kubernetes requests
+    # If qps/burst are <= 0, client-go defaults are used (QPS=5, Burst=10).
     qps: 10
     burst: 20
+  # Cache settings for authentication results (success and failure)
+  cache:
+    # TTL for successful/unsuccessful authentication results.
+    # If omitted or <= 0, defaults are used (2m for both).
+    success_ttl: "2m"
+    failure_ttl: "2m"
   # Map k8s user groups/extra to labels for ACL matching
   labels:
     include_groups: true
