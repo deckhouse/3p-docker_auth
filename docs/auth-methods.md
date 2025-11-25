@@ -58,7 +58,10 @@ Kubernetes authorization:
 
 ```yaml
 kubernetes_authz:
-  request_timeout: "5s"
+  limits:
+    request_timeout: "5s"
+    qps: 10
+    burst: 20
   api_group: "deckhouse.io"
   resource: "payloadrepositories"
   namespaced: true
