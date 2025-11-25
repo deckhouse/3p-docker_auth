@@ -38,15 +38,23 @@ Enable in config:
 kubernetes_auth:
   # Use in-cluster config by default; or specify kubeconfig path.
   # kubeconfig: "/path/to/kubeconfig"
+
+  # Limits for outgoing TokenReview calls
   limits:
     request_timeout: "5s"
     # Optional client-go throttling for outgoing Kubernetes requests.
     # If qps/burst are <= 0, client-go defaults are used (QPS=5, Burst=10).
     qps: 10
     burst: 20
+
+  # Cache settings for authentication results
   cache:
+    # TTL for successful authentication results (0 disables caching)
     success_ttl: "2m"
+    # TTL for failed authentication results (0 disables caching)
     failure_ttl: "2m"
+
+  # Map k8s user groups/extra to labels for ACL matching
   labels:
     include_groups: true   # expose k8s user groups as labels["groups"]
     include_extra: false   # expose TokenReview user.extra[*] as labels
@@ -58,20 +66,34 @@ Kubernetes authorization:
 
 ```yaml
 kubernetes_authz:
+  # kubeconfig: "/path/to/kubeconfig" # optional; empty means in-cluster
+
+  # Limits for outgoing SubjectAccessReview calls
   limits:
     request_timeout: "5s"
+    # Optional client-go throttling for outgoing Kubernetes requests
     qps: 10
     burst: 20
-  api_group: "deckhouse.io"
-  resource: "payloadrepositories"
-  namespaced: true
-  namespace:
-    mode: "from_repo"          # or fixed
-    # fixed: "d8-system"
-  name_transform: "base32"      # or raw
-  verbs:
-    pull: "get"
-    push: "create"
+
+  # Cache settings for authorization decisions
+  cache:
+    # TTL for allowed authorization results (0 disables caching)
+    allow_ttl: "2m"
+    # TTL for denied authorization results (0 disables caching)
+    deny_ttl: "2m"
+
+  # Parameters for constructing the SubjectAccessReview
+  review:
+    api_group: "deckhouse.io"
+    resource: "payloadrepositories"
+    # Label key containing username from AuthN labels (default: k8s_username)
+    user_label: "k8s_username"
+    # Transform repo name before putting into ResourceName?
+    name_transform: "base32"      # or raw
+    # Map docker actions to Kubernetes verbs
+    verbs:
+      pull: "get"
+      push: "create"
 ```
 
 Required RBAC for docker-auth's ServiceAccount:

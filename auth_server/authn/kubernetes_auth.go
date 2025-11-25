@@ -36,18 +36,20 @@ import (
 	webhookauthn "k8s.io/apiserver/plugin/pkg/authenticator/token/webhook"
 )
 
-// KubernetesAuthConfig configures the Kubernetes authenticator.
 type KubernetesAuthConfig struct {
 	Kubeconfig string `yaml:"kubeconfig,omitempty"`
-	Labels     struct {
+
+	Labels struct {
 		IncludeGroups bool `yaml:"include_groups,omitempty"`
 		IncludeExtra  bool `yaml:"include_extra,omitempty"`
 	} `yaml:"labels,omitempty"`
+
 	Limits struct {
 		QPS            float32       `yaml:"qps,omitempty"`
 		Burst          int           `yaml:"burst,omitempty"`
 		RequestTimeout time.Duration `yaml:"request_timeout,omitempty"`
 	} `yaml:"limits,omitempty"`
+
 	Cache struct {
 		SuccessTTL time.Duration `yaml:"success_ttl,omitempty"`
 		FailureTTL time.Duration `yaml:"failure_ttl,omitempty"`
@@ -95,6 +97,7 @@ func buildRestConfig(kubeconfig string) (*rest.Config, error) {
 		cfg *rest.Config
 		err error
 	)
+
 	if kubeconfig != "" {
 		if _, statErr := os.Stat(kubeconfig); statErr != nil {
 			return nil, fmt.Errorf("kubeconfig not accessible: %w", statErr)
@@ -103,9 +106,11 @@ func buildRestConfig(kubeconfig string) (*rest.Config, error) {
 	} else {
 		cfg, err = rest.InClusterConfig()
 	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to build Kubernetes REST config (in_cluster=%t): %w", kubeconfig == "", err)
 	}
+
 	return cfg, nil
 }
 
@@ -148,6 +153,7 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create webhook token authenticator: %w", err)
 	}
+
 	cachingAuth := tokencache.New(tokenAuth, false, c.Cache.SuccessTTL, c.Cache.FailureTTL)
 
 	glog.V(1).Infof("Kubernetes auth configured (kubeconfig=%t, rest_qps_burst=%v/%d, cache_ttl=%s/%s)", c.Kubeconfig != "", c.Limits.QPS, c.Limits.Burst, c.Cache.SuccessTTL, c.Cache.FailureTTL)
@@ -167,6 +173,7 @@ func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString)
 		glog.Errorf("k8s token authenticator error: %v", err)
 		return false, nil, err
 	}
+
 	if !ok || authResp == nil || authResp.User == nil {
 		glog.V(2).Infof("Kubernetes authn failed for user=%q", user)
 		return false, nil, nil
@@ -184,6 +191,7 @@ func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString)
 			labels["groups"] = append([]string(nil), groups...)
 		}
 	}
+
 	if ka.cfg.Labels.IncludeExtra {
 		if extra := authResp.User.GetExtra(); extra != nil {
 			for k, v := range extra {

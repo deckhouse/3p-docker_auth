@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/base32"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -28,8 +29,10 @@ import (
 
 	"github.com/cesanta/docker_auth/auth_server/api"
 
-	authzv1 "k8s.io/api/authorization/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apiserver/pkg/authentication/user"
+	"k8s.io/apiserver/pkg/authorization/authorizer"
+	"k8s.io/apiserver/pkg/authorization/authorizerfactory"
+	"k8s.io/apiserver/pkg/server/options"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -38,27 +41,29 @@ import (
 type KubernetesAuthzConfig struct {
 	Kubeconfig string `yaml:"kubeconfig,omitempty"`
 
+	Review struct {
+		APIGroup      string            `yaml:"api_group,omitempty"`
+		Resource      string            `yaml:"resource,omitempty"`
+		UserLabel     string            `yaml:"user_label,omitempty"`
+		NameTransform string            `yaml:"name_transform,omitempty"`
+		Verbs         map[string]string `yaml:"verbs,omitempty"`
+	} `yaml:"review,omitempty"`
+
 	Limits struct {
 		QPS            float32       `yaml:"qps,omitempty"`
 		Burst          int           `yaml:"burst,omitempty"`
 		RequestTimeout time.Duration `yaml:"request_timeout,omitempty"`
 	} `yaml:"limits,omitempty"`
 
-	APIGroup string `yaml:"api_group,omitempty"`
-	Resource string `yaml:"resource,omitempty"`
-
-	// UserLabel is the label key to read Kubernetes username from AuthN labels
-	// Defaults to "k8s_username".
-	UserLabel string `yaml:"user_label,omitempty"`
-
-	NameTransform string `yaml:"name_transform,omitempty"` // base32 | raw
-
-	Verbs map[string]string `yaml:"verbs,omitempty"` // map docker action -> k8s verb
+	Cache struct {
+		AllowTTL time.Duration `yaml:"allow_ttl,omitempty"`
+		DenyTTL  time.Duration `yaml:"deny_ttl,omitempty"`
+	} `yaml:"cache,omitempty"`
 }
 
 type kubernetesAuthz struct {
-	cfg    *KubernetesAuthzConfig
-	client *kubernetes.Clientset
+	cfg   *KubernetesAuthzConfig
+	authz authorizer.Authorizer
 }
 
 var (
@@ -88,73 +93,110 @@ func (c *KubernetesAuthzConfig) Validate(configKey string) error {
 	if c == nil {
 		return fmt.Errorf("%s is nil", configKey)
 	}
-	if c.APIGroup == "" || c.Resource == "" {
-		return fmt.Errorf("%s.api_group and %s.resource are required", configKey, configKey)
+
+	if c.Review.APIGroup == "" || c.Review.Resource == "" {
+		return fmt.Errorf("%s.review.{api_group,resource} are required", configKey)
 	}
-	if c.UserLabel == "" {
-		c.UserLabel = "k8s_username"
+
+	if c.Review.UserLabel == "" {
+		c.Review.UserLabel = "k8s_username"
 	}
-	if c.NameTransform == "" {
-		c.NameTransform = "base32"
+
+	if c.Review.NameTransform == "" {
+		c.Review.NameTransform = "base32"
 	}
-	if c.Verbs == nil {
-		c.Verbs = map[string]string{"pull": "get", "push": "create"}
+
+	if c.Review.Verbs == nil {
+		c.Review.Verbs = map[string]string{"pull": "get", "push": "create"}
 	}
+
 	return nil
 }
 
 func buildRestConfig(kubeconfig string) (*rest.Config, error) {
+	var (
+		cfg *rest.Config
+		err error
+	)
+
 	if kubeconfig != "" {
-		return clientcmd.BuildConfigFromFlags("", kubeconfig)
+		if _, statErr := os.Stat(kubeconfig); statErr != nil {
+			return nil, fmt.Errorf("kubeconfig not accessible: %w", statErr)
+		}
+		cfg, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+	} else {
+		cfg, err = rest.InClusterConfig()
 	}
-	return rest.InClusterConfig()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to build Kubernetes REST config (in_cluster=%t): %w", kubeconfig == "", err)
+	}
+
+	return cfg, nil
 }
 
 func NewKubernetesAuthz(c *KubernetesAuthzConfig) (api.Authorizer, error) {
 	if err := c.Validate("kubernetes_authz"); err != nil {
 		return nil, err
 	}
+
 	rc, err := buildRestConfig(c.Kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build Kubernetes REST config: %w", err)
 	}
+
 	if c.Limits.QPS > 0 {
 		rc.QPS = c.Limits.QPS
 	}
 	if c.Limits.Burst > 0 {
 		rc.Burst = c.Limits.Burst
 	}
+
 	cs, err := kubernetes.NewForConfig(rc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
-	glog.V(1).Infof("Kubernetes authz configured (kubeconfig=%t, group=%s, resource=%s, rest_qps_burst=%v/%d)", c.Kubeconfig != "", c.APIGroup, c.Resource, c.Limits.QPS, c.Limits.Burst)
-	return &kubernetesAuthz{cfg: c, client: cs}, nil
+
+	// authorizerfactory.DelegatingAuthorizerConfig does not apply defaults for zero TTLs.
+	// If c.Cache.AllowTTL/DenyTTL are 0, caching is disabled.
+	authzConfig := authorizerfactory.DelegatingAuthorizerConfig{
+		SubjectAccessReviewClient: cs.AuthorizationV1(),
+		AllowCacheTTL:             c.Cache.AllowTTL,
+		DenyCacheTTL:              c.Cache.DenyTTL,
+		WebhookRetryBackoff:       options.DefaultAuthWebhookRetryBackoff(),
+	}
+
+	k8sAuthz, err := authzConfig.New()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create k8s authorizer: %w", err)
+	}
+
+	glog.V(1).Infof("Kubernetes authz configured (kubeconfig=%t, group=%s, resource=%s, rest_qps_burst=%v/%d, cache_ttl=%s/%s)", c.Kubeconfig != "", c.Review.APIGroup, c.Review.Resource, c.Limits.QPS, c.Limits.Burst, c.Cache.AllowTTL, c.Cache.DenyTTL)
+	return &kubernetesAuthz{cfg: c, authz: k8sAuthz}, nil
 }
-
-func (ka *kubernetesAuthz) Stop() {}
-
-func (ka *kubernetesAuthz) Name() string { return "Kubernetes RBAC" }
 
 func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) {
 	if ai.Account != "token" {
 		return nil, api.NoMatch
 	}
+
 	// Extract subject from labels
-	user := ""
-	if vals, ok := ai.Labels[ka.cfg.UserLabel]; ok && len(vals) > 0 {
-		user = vals[0]
+	username := ""
+	if vals, ok := ai.Labels[ka.cfg.Review.UserLabel]; ok && len(vals) > 0 {
+		username = vals[0]
 	}
-	if user == "" {
+
+	if username == "" {
 		return nil, api.NoMatch
 	}
+
 	groups := ai.Labels["groups"]
-	extra := map[string]authzv1.ExtraValue{}
+	extra := map[string][]string{}
 	for k, vs := range ai.Labels {
 		if k == "k8s_username" || k == "groups" {
 			continue
 		}
-		extra[k] = authzv1.ExtraValue(vs)
+		extra[k] = vs
 	}
 
 	timeout := ka.cfg.Limits.RequestTimeout
@@ -166,38 +208,41 @@ func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) 
 
 	allowed := []string{}
 	for _, action := range ai.Actions {
-		verb, ok := ka.cfg.Verbs[action]
+		verb, ok := ka.cfg.Review.Verbs[action]
 		if !ok {
 			continue
 		}
+
 		ns, name := ka.deriveNSAndName(ai)
 		if verb == "create" {
 			// For create, Name is typically empty in SAR
 			name = ""
 		}
-		sar := &authzv1.SubjectAccessReview{
-			Spec: authzv1.SubjectAccessReviewSpec{
-				User:   user,
+
+		attrs := authorizer.AttributesRecord{
+			User: &user.DefaultInfo{
+				Name:   username,
 				Groups: groups,
 				Extra:  extra,
-				ResourceAttributes: &authzv1.ResourceAttributes{
-					Group:     ka.cfg.APIGroup,
-					Resource:  ka.cfg.Resource,
-					Verb:      verb,
-					Namespace: ns,
-					Name:      name,
-				},
 			},
+			Verb:            verb,
+			Namespace:       ns,
+			APIGroup:        ka.cfg.Review.APIGroup,
+			Resource:        ka.cfg.Review.Resource,
+			Name:            name,
+			ResourceRequest: true,
 		}
 
 		start := time.Now()
-		res, err := ka.client.AuthorizationV1().SubjectAccessReviews().Create(ctx, sar, metav1.CreateOptions{})
+		decision, _, err := ka.authz.Authorize(ctx, attrs)
 		duration := time.Since(start).Seconds()
 
 		code := "200"
 		if err != nil {
 			code = "<error>"
-			glog.Errorf("Kubernetes SAR error: %v", err)
+			glog.Errorf("Kubernetes Authorize error: %v", err)
+		} else if decision != authorizer.DecisionAllow {
+			code = "403"
 		}
 
 		k8sAuthzRequestsTotal.WithLabelValues(code).Inc()
@@ -206,14 +251,22 @@ func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) 
 		if err != nil {
 			return nil, err
 		}
-		if res.Status.Allowed {
+		if decision == authorizer.DecisionAllow {
 			allowed = append(allowed, action)
 		}
 	}
+
 	if len(allowed) == 0 {
 		return []string{}, nil
 	}
 	return allowed, nil
+}
+
+func (ka *kubernetesAuthz) Stop() {
+}
+
+func (ka *kubernetesAuthz) Name() string {
+	return "Kubernetes RBAC"
 }
 
 func (ka *kubernetesAuthz) deriveNSAndName(ai *api.AuthRequestInfo) (string, string) {
@@ -225,8 +278,9 @@ func (ka *kubernetesAuthz) deriveNSAndName(ai *api.AuthRequestInfo) (string, str
 	} else {
 		glog.V(2).Infof("Kubernetes authz: repository name lacks namespace: %q", ai.Name)
 	}
+
 	name := ai.Name
-	if ka.cfg.NameTransform == "base32" {
+	if ka.cfg.Review.NameTransform == "base32" {
 		enc := base32.StdEncoding.WithPadding(base32.NoPadding)
 		name = strings.ToLower(enc.EncodeToString([]byte(ai.Name)))
 	}

@@ -218,45 +218,64 @@ oidc_auth:
 kubernetes_auth:
   # Optional path to kubeconfig. If empty, in-cluster config is used.
   # kubeconfig: "/path/to/kubeconfig"
-  # Limits for Kubernetes calls (client-go throttling + request timeout)
+
+  # Limits for outgoing TokenReview calls
   limits:
-    # How long to wait for the TokenReview call before timing out.
     request_timeout: "5s"
     # Optional client-go throttling for outgoing Kubernetes requests
     # If qps/burst are <= 0, client-go defaults are used (QPS=5, Burst=10).
     qps: 10
     burst: 20
-  # Cache settings for authentication results (success and failure)
+
+  # Cache settings for authentication results
   cache:
-    # TTL for successful/unsuccessful authentication results.
-    # If omitted or <= 0, defaults are used (2m for both).
+    # TTL for successful authentication results.
+    # If 0, caching is disabled.
     success_ttl: "2m"
+    # TTL for failed authentication results.
+    # If 0, caching is disabled.
     failure_ttl: "2m"
+
   # Map k8s user groups/extra to labels for ACL matching
   labels:
     include_groups: true
     include_extra: false
+  # Note: when using Kubernetes auth, the docker login username must be "token"
+  # and the password must be a valid Kubernetes bearer token.
 
 # Kubernetes authorization (RBAC via SubjectAccessReview).
 # Maps docker actions (pull/push) to k8s verbs for a CR in api_group/resource.
 kubernetes_authz:
   # kubeconfig: "/path/to/kubeconfig" # optional; empty means in-cluster
-  request_timeout: "5s"
-  api_group: "deckhouse.io"
-  resource: "payloadrepositories"
-  # Label key containing username from AuthN labels (default: k8s_username)
-  user_label: "k8s_username"
-  # Optional outgoing rate-limit for SAR calls
-  # Set qps and burst independently. If a value <= 0, client-go defaults
-  # are used (QPS=5, Burst=10). Leaving both unset keeps defaults.
-  rate_limit:
-    qps: 50
-    burst: 100
-  # Namespace is always derived from repo name: "<namespace>/<image>"
-  name_transform: "base32" # base32 | raw
-  verbs:
-    pull: "get"
-    push: "create"
+
+  # Limits for outgoing SubjectAccessReview calls
+  limits:
+    request_timeout: "5s"
+    # Optional client-go throttling for outgoing Kubernetes requests
+    # If qps/burst are <= 0, client-go defaults are used (QPS=5, Burst=10).
+    qps: 10
+    burst: 20
+
+  # Cache settings for authorization decisions
+  cache:
+    # TTL for allowed authorization results.
+    # If 0, caching is disabled.
+    allow_ttl: "2m"
+    # TTL for denied authorization results.
+    # If 0, caching is disabled.
+    deny_ttl: "2m"
+
+  # Parameters for constructing the SubjectAccessReview
+  review:
+    api_group: "deckhouse.io"
+    resource: "payloadrepositories"
+    # Label key containing username from AuthN labels (default: k8s_username)
+    user_label: "k8s_username"
+    # Namespace is always derived from repo name: "<namespace>/<image>"
+    name_transform: "base32" # base32 | raw
+    verbs:
+      pull: "get"
+      push: "create"
 
 # Gitlab authentication.
 # ==! NB: DO NOT ENTER YOUR Gitlab PASSWORD AT "docker login". IT WILL NOT WORK.
