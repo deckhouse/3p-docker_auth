@@ -39,6 +39,11 @@ import (
 type KubernetesAuthConfig struct {
 	Kubeconfig string `yaml:"kubeconfig,omitempty"`
 
+	Labels struct {
+		IncludeGroups bool `yaml:"include_groups,omitempty"`
+		IncludeExtra  bool `yaml:"include_extra,omitempty"`
+	} `yaml:"labels,omitempty"`
+
 	Limits struct {
 		QPS            float32       `yaml:"qps,omitempty"`
 		Burst          int           `yaml:"burst,omitempty"`
@@ -49,11 +54,6 @@ type KubernetesAuthConfig struct {
 		SuccessTTL time.Duration `yaml:"success_ttl,omitempty"`
 		FailureTTL time.Duration `yaml:"failure_ttl,omitempty"`
 	} `yaml:"cache,omitempty"`
-
-	Labels struct {
-		IncludeGroups bool `yaml:"include_groups,omitempty"`
-		IncludeExtra  bool `yaml:"include_extra,omitempty"`
-	} `yaml:"labels,omitempty"`
 }
 
 type KubernetesAuth struct {
@@ -93,25 +93,13 @@ func (c *KubernetesAuthConfig) Validate(configKey string) error {
 }
 
 func buildRestConfig(kubeconfig string) (*rest.Config, error) {
-	var (
-		cfg *rest.Config
-		err error
-	)
-
 	if kubeconfig != "" {
 		if _, statErr := os.Stat(kubeconfig); statErr != nil {
 			return nil, fmt.Errorf("kubeconfig not accessible: %w", statErr)
 		}
-		cfg, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
-	} else {
-		cfg, err = rest.InClusterConfig()
+		return clientcmd.BuildConfigFromFlags("", kubeconfig)
 	}
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to build Kubernetes REST config (in_cluster=%t): %w", kubeconfig == "", err)
-	}
-
-	return cfg, nil
+	return rest.InClusterConfig()
 }
 
 func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {

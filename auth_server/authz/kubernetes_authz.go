@@ -45,17 +45,11 @@ type KubernetesAuthzConfig struct {
 		RequestTimeout time.Duration `yaml:"request_timeout,omitempty"`
 	} `yaml:"limits,omitempty"`
 
-	Cache struct {
-		AllowTTL time.Duration `yaml:"allow_ttl,omitempty"`
-		DenyTTL  time.Duration `yaml:"deny_ttl,omitempty"`
-	} `yaml:"cache,omitempty"`
-
 	Review struct {
-		APIGroup      string            `yaml:"api_group,omitempty"`
-		Resource      string            `yaml:"resource,omitempty"`
-		UserLabel     string            `yaml:"user_label,omitempty"`
-		NameTransform string            `yaml:"name_transform,omitempty"`
-		Verbs         map[string]string `yaml:"verbs,omitempty"`
+		APIGroup  string            `yaml:"api_group,omitempty"`
+		Resource  string            `yaml:"resource,omitempty"`
+		UserLabel string            `yaml:"user_label,omitempty"`
+		Verbs     map[string]string `yaml:"verbs,omitempty"`
 	} `yaml:"review,omitempty"`
 }
 
@@ -100,12 +94,12 @@ func (c *KubernetesAuthzConfig) Validate(configKey string) error {
 		c.Review.UserLabel = "k8s_username"
 	}
 
-	if c.Review.NameTransform == "" {
-		c.Review.NameTransform = "base32"
-	}
-
 	if c.Review.Verbs == nil {
-		c.Review.Verbs = map[string]string{"pull": "get", "push": "create"}
+		c.Review.Verbs = map[string]string{
+			"pull":   "get",
+			"push":   "create",
+			"delete": "delete",
+		}
 	}
 
 	return nil
@@ -138,7 +132,11 @@ func NewKubernetesAuthz(c *KubernetesAuthzConfig) (api.Authorizer, error) {
 		rc.Burst = c.Limits.Burst
 	}
 
-	glog.V(1).Infof("Kubernetes authz configured (kubeconfig=%t, group=%s, resource=%s, rest_qps_burst=%v/%d, cache_ttl=%s/%s)", c.Kubeconfig != "", c.Review.APIGroup, c.Review.Resource, c.Limits.QPS, c.Limits.Burst, c.Cache.AllowTTL, c.Cache.DenyTTL)
+	// We don't create a Clientset here because we need to create a new one
+	// for each request with impersonation configuration.
+	// We store the rest.Config to clone it later.
+
+	glog.V(1).Infof("Kubernetes authz configured (kubeconfig=%t, group=%s, resource=%s, rest_qps_burst=%v/%d)", c.Kubeconfig != "", c.Review.APIGroup, c.Review.Resource, c.Limits.QPS, c.Limits.Burst)
 	return &kubernetesAuthz{cfg: c, restConfig: rc}, nil
 }
 
@@ -173,12 +171,10 @@ func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	// Derive namespace and relative path from the requested repository name
-	ns, relativePath := ka.deriveNSAndPath(ai)
+	// Derive relative path from the requested repository name
+	relativePath := ka.derivePath(ai.Name)
 
 	// Prepare impersonation config
-	// Create a shallow copy of the config to avoid race conditions if we were to modify it in place
-	// (though we are creating a new client, passing modified config is safer)
 	impersonatedConfig := *ka.restConfig
 	impersonatedConfig.Impersonate = rest.ImpersonationConfig{
 		UserName: username,
@@ -193,13 +189,17 @@ func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) 
 	}
 
 	allowed := []string{}
+
+	// SSRR must be performed in the namespace derived from the repo path.
+	// According to Deckhouse logic, the first segment of the repo path is the Namespace.
+	ns := strings.SplitN(ai.Name, "/", 2)[0]
+
 	ssrr := &authorizationv1.SelfSubjectRulesReview{
 		Spec: authorizationv1.SelfSubjectRulesReviewSpec{
 			Namespace: ns,
 		},
 	}
 
-	// We only need to do SSRR once per request, as it returns ALL rules for the user in the namespace.
 	// Optimization: Check if we have at least one action to check before making the call.
 	if len(ai.Actions) == 0 {
 		return allowed, nil
@@ -240,21 +240,17 @@ func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) 
 	return allowed, nil
 }
 
-// Recursive wildcard matching helper
-// path.Match does not support recursive wildcards ("**")
-// This implementation treats any "*" as a recursive match for path segments if it's at the end?
-// No, standard path.Match is simple shell glob.
-// For "backend/*" matching "backend/v2/api", path.Match fails because "*" does not match separator.
-// We need prefix matching logic if pattern ends with "*" or proper glob support.
+// matchPattern checks if the resource name matches the RBAC pattern.
+// Supports standard path matching and recursive wildcard suffix "/*".
 func matchPattern(pattern, name string) (bool, error) {
-	// Optimization for common "prefix/*" case
+	// Optimization for common "prefix/*" case (recursive match)
 	if strings.HasSuffix(pattern, "/*") {
 		prefix := strings.TrimSuffix(pattern, "*")
 		if strings.HasPrefix(name, prefix) {
 			return true, nil
 		}
 	}
-	// Fallback to standard glob
+	// Fallback to standard glob (non-recursive)
 	return path.Match(pattern, name)
 }
 
@@ -308,16 +304,14 @@ func (ka *kubernetesAuthz) Name() string {
 	return "Kubernetes RBAC (SSRR)"
 }
 
-func (ka *kubernetesAuthz) deriveNSAndPath(ai *api.AuthRequestInfo) (string, string) {
-	ns := ""
+func (ka *kubernetesAuthz) derivePath(fullRepoName string) string {
 	// Expect repo name like "namespace/image/subpath"
-	parts := strings.SplitN(ai.Name, "/", 2)
+	parts := strings.SplitN(fullRepoName, "/", 2)
 	if len(parts) == 2 {
-		ns = parts[0]
-		// Return the namespace and the REST of the path (e.g. "image/subpath")
+		// Return the REST of the path (e.g. "image/subpath")
 		// This "rest" is what we match against resourceNames in RBAC
-		return ns, parts[1]
+		return parts[1]
 	}
-	glog.V(2).Infof("Kubernetes authz: repository name lacks namespace: %q", ai.Name)
-	return "", ai.Name
+	glog.V(2).Infof("Kubernetes authz: repository name lacks namespace: %q", fullRepoName)
+	return fullRepoName
 }

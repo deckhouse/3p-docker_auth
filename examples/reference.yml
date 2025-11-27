@@ -243,39 +243,31 @@ kubernetes_auth:
   # Note: when using Kubernetes auth, the docker login username must be "token"
   # and the password must be a valid Kubernetes bearer token.
 
-# Kubernetes authorization (RBAC via SubjectAccessReview).
-# Maps docker actions (pull/push) to k8s verbs for a CR in api_group/resource.
+# Kubernetes authorization (RBAC via SelfSubjectRulesReview).
+# Maps docker actions (pull/push/delete) to k8s verbs for a CR in api_group/resource.
 kubernetes_authz:
   # kubeconfig: "/path/to/kubeconfig" # optional; empty means in-cluster
 
-  # Limits for outgoing SubjectAccessReview calls
+  # Limits for outgoing SelfSubjectRulesReview calls
   limits:
-  request_timeout: "5s"
+    request_timeout: "5s"
     # Optional client-go throttling for outgoing Kubernetes requests
     # If qps/burst are <= 0, client-go defaults are used (QPS=5, Burst=10).
     qps: 10
     burst: 20
 
-  # Cache settings for authorization decisions
-  cache:
-    # TTL for allowed authorization results.
-    # If 0, caching is disabled.
-    allow_ttl: "2m"
-    # TTL for denied authorization results.
-    # If 0, caching is disabled.
-    deny_ttl: "2m"
-
-  # Parameters for constructing the SubjectAccessReview
+  # Parameters for constructing the SelfSubjectRulesReview.
+  # Note: The Namespace for the review is derived from the first segment of the repository name (e.g. "ns/image" -> "ns").
   review:
     api_group: "registry.deckhouse.io"
     resource: "payloadrepositorytags"
-  # Label key containing username from AuthN labels (default: k8s_username)
-  user_label: "k8s_username"
-  # Namespace is always derived from repo name: "<namespace>/<image>"
-  name_transform: "base32" # base32 | raw
-  verbs:
-    pull: "get"
-    push: "create"
+    # Label key containing username from AuthN labels (default: k8s_username)
+    user_label: "k8s_username"
+    # Map docker actions to Kubernetes verbs
+    verbs:
+      pull: "get"
+      push: "create"
+      delete: "delete"
 
 # Gitlab authentication.
 # ==! NB: DO NOT ENTER YOUR Gitlab PASSWORD AT "docker login". IT WILL NOT WORK.

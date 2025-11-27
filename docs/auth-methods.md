@@ -41,7 +41,7 @@ kubernetes_auth:
 
   # Limits for outgoing TokenReview calls
   limits:
-  request_timeout: "5s"
+    request_timeout: "5s"
     # Optional client-go throttling for outgoing Kubernetes requests.
     # If qps/burst are <= 0, client-go defaults are used (QPS=5, Burst=10).
     qps: 10
@@ -68,32 +68,25 @@ Kubernetes authorization:
 kubernetes_authz:
   # kubeconfig: "/path/to/kubeconfig" # optional; empty means in-cluster
 
-  # Limits for outgoing SubjectAccessReview calls
+  # Limits for outgoing SelfSubjectRulesReview calls
   limits:
-  request_timeout: "5s"
+    request_timeout: "5s"
     # Optional client-go throttling for outgoing Kubernetes requests
     qps: 10
     burst: 20
 
-  # Cache settings for authorization decisions
-  cache:
-    # TTL for allowed authorization results (0 disables caching)
-    allow_ttl: "2m"
-    # TTL for denied authorization results (0 disables caching)
-    deny_ttl: "2m"
-
-  # Parameters for constructing the SubjectAccessReview
+  # Parameters for constructing the SelfSubjectRulesReview.
+  # Note: The Namespace for the review is derived from the first segment of the repository name (e.g. "ns/image" -> "ns").
   review:
     api_group: "registry.deckhouse.io"
     resource: "payloadrepositorytags"
     # Label key containing username from AuthN labels (default: k8s_username)
     user_label: "k8s_username"
-    # Transform repo name before putting into ResourceName?
-  name_transform: "base32"      # or raw
     # Map docker actions to Kubernetes verbs
-  verbs:
-    pull: "get"
-    push: "create"
+    verbs:
+      pull: "get"
+      push: "create"
+      delete: "delete"
 ```
 
 Required RBAC for docker-auth's ServiceAccount:
@@ -108,7 +101,7 @@ rules:
   resources: ["tokenreviews"]
   verbs: ["create"]
 - apiGroups: ["authorization.k8s.io"]
-  resources: ["subjectaccessreviews"]
+  resources: ["selfsubjectrulesreviews"]
   verbs: ["create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
