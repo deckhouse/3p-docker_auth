@@ -41,7 +41,7 @@ kubernetes_auth:
 
   # Limits for outgoing TokenReview calls
   limits:
-    request_timeout: "5s"
+  request_timeout: "5s"
     # Optional client-go throttling for outgoing Kubernetes requests.
     # If qps/burst are <= 0, client-go defaults are used (QPS=5, Burst=10).
     qps: 10
@@ -70,7 +70,7 @@ kubernetes_authz:
 
   # Limits for outgoing SubjectAccessReview calls
   limits:
-    request_timeout: "5s"
+  request_timeout: "5s"
     # Optional client-go throttling for outgoing Kubernetes requests
     qps: 10
     burst: 20
@@ -89,11 +89,11 @@ kubernetes_authz:
     # Label key containing username from AuthN labels (default: k8s_username)
     user_label: "k8s_username"
     # Transform repo name before putting into ResourceName?
-    name_transform: "base32"      # or raw
+  name_transform: "base32"      # or raw
     # Map docker actions to Kubernetes verbs
-    verbs:
-      pull: "get"
-      push: "create"
+  verbs:
+    pull: "get"
+    push: "create"
 ```
 
 Required RBAC for docker-auth's ServiceAccount:

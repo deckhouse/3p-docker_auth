@@ -39,11 +39,6 @@ import (
 type KubernetesAuthConfig struct {
 	Kubeconfig string `yaml:"kubeconfig,omitempty"`
 
-	Labels struct {
-		IncludeGroups bool `yaml:"include_groups,omitempty"`
-		IncludeExtra  bool `yaml:"include_extra,omitempty"`
-	} `yaml:"labels,omitempty"`
-
 	Limits struct {
 		QPS            float32       `yaml:"qps,omitempty"`
 		Burst          int           `yaml:"burst,omitempty"`
@@ -54,6 +49,11 @@ type KubernetesAuthConfig struct {
 		SuccessTTL time.Duration `yaml:"success_ttl,omitempty"`
 		FailureTTL time.Duration `yaml:"failure_ttl,omitempty"`
 	} `yaml:"cache,omitempty"`
+
+	Labels struct {
+		IncludeGroups bool `yaml:"include_groups,omitempty"`
+		IncludeExtra  bool `yaml:"include_extra,omitempty"`
+	} `yaml:"labels,omitempty"`
 }
 
 type KubernetesAuth struct {

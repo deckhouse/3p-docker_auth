@@ -250,7 +250,7 @@ kubernetes_authz:
 
   # Limits for outgoing SubjectAccessReview calls
   limits:
-    request_timeout: "5s"
+  request_timeout: "5s"
     # Optional client-go throttling for outgoing Kubernetes requests
     # If qps/burst are <= 0, client-go defaults are used (QPS=5, Burst=10).
     qps: 10
@@ -269,13 +269,13 @@ kubernetes_authz:
   review:
     api_group: "registry.deckhouse.io"
     resource: "payloadrepositorytags"
-    # Label key containing username from AuthN labels (default: k8s_username)
-    user_label: "k8s_username"
-    # Namespace is always derived from repo name: "<namespace>/<image>"
-    name_transform: "base32" # base32 | raw
-    verbs:
-      pull: "get"
-      push: "create"
+  # Label key containing username from AuthN labels (default: k8s_username)
+  user_label: "k8s_username"
+  # Namespace is always derived from repo name: "<namespace>/<image>"
+  name_transform: "base32" # base32 | raw
+  verbs:
+    pull: "get"
+    push: "create"
 
 # Gitlab authentication.
 # ==! NB: DO NOT ENTER YOUR Gitlab PASSWORD AT "docker login". IT WILL NOT WORK.
