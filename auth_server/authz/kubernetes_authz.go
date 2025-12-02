@@ -226,6 +226,7 @@ func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) 
 	for _, action := range ai.Actions {
 		verb, ok := ka.cfg.Review.Verbs[action]
 		if !ok {
+			glog.Warningf("Kubernetes authz: unknown action %q (not mapped to any K8s verb), ignoring", action)
 			continue
 		}
 
@@ -241,8 +242,12 @@ func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) 
 }
 
 // matchPattern checks if the resource name matches the RBAC pattern.
-// Supports standard path matching and recursive wildcard suffix "/*".
+// Supports standard path matching, recursive wildcard suffix "/*", and global wildcard "*".
 func matchPattern(pattern, name string) (bool, error) {
+	// Global wildcard matches everything
+	if pattern == "*" {
+		return true, nil
+	}
 	// Optimization for common "prefix/*" case (recursive match)
 	if strings.HasSuffix(pattern, "/*") {
 		prefix := strings.TrimSuffix(pattern, "*")
@@ -272,9 +277,10 @@ func (ka *kubernetesAuthz) isActionAllowed(rules []authorizationv1.ResourceRule,
 		}
 
 		// Check ResourceNames (This is our custom path matching logic)
-		// If ResourceNames is empty, it means "all resources" -> ALLOW
+		// If ResourceNames is empty, it acts as a DENY.
+		// To allow all resources, explicit "*" must be used in resourceNames.
 		if len(rule.ResourceNames) == 0 {
-			return true
+			continue
 		}
 
 		// If ResourceNames is not empty, we check if our path matches any of the patterns
