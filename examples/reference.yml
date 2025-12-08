@@ -245,6 +245,7 @@ kubernetes_auth:
 
 # Kubernetes authorization (RBAC via SelfSubjectRulesReview).
 # Maps docker actions (pull/push/delete) to k8s verbs for a CR in api_group/resource.
+# Supports recursive globbing (e.g. "images/**") in RBAC resourceNames.
 kubernetes_authz:
   # kubeconfig: "/path/to/kubeconfig" # optional; empty means in-cluster
 
@@ -256,6 +257,13 @@ kubernetes_authz:
     qps: 10
     burst: 20
 
+  # Cache settings for authorization results (SSRR)
+  cache:
+    # TTL for successful authorization results. If 0, caching is disabled.
+    success_ttl: "2m"
+    # TTL for failed authorization results. If 0, caching is disabled.
+    failure_ttl: "2m"
+
   # Parameters for constructing the SelfSubjectRulesReview.
   # Note: The Namespace for the review is derived from the first segment of the repository name (e.g. "ns/image" -> "ns").
   review:
@@ -263,11 +271,7 @@ kubernetes_authz:
     resource: "payloadrepositorytags"
     # Label key containing username from AuthN labels (default: k8s_username)
     user_label: "k8s_username"
-    # Map docker actions to Kubernetes verbs
-    verbs:
-      pull: "get"
-      push: "create"
-      delete: "delete"
+    # Verbs are hardcoded in the application: pull->get, push->create, delete->delete
 
 # Gitlab authentication.
 # ==! NB: DO NOT ENTER YOUR Gitlab PASSWORD AT "docker login". IT WILL NOT WORK.

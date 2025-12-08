@@ -75,18 +75,22 @@ kubernetes_authz:
     qps: 10
     burst: 20
 
+  # Cache settings for authorization results (SSRR)
+  cache:
+    # TTL for successful authorization results (0 disables caching)
+    success_ttl: "2m"
+    # TTL for failed authorization results (0 disables caching)
+    failure_ttl: "2m"
+
   # Parameters for constructing the SelfSubjectRulesReview.
   # Note: The Namespace for the review is derived from the first segment of the repository name (e.g. "ns/image" -> "ns").
+  # The returned RBAC rules are matched against the remaining path.
+  # Recursive globbing (e.g. "images/**") is supported.
   review:
     api_group: "registry.deckhouse.io"
     resource: "payloadrepositorytags"
     # Label key containing username from AuthN labels (default: k8s_username)
     user_label: "k8s_username"
-    # Map docker actions to Kubernetes verbs
-    verbs:
-      pull: "get"
-      push: "create"
-      delete: "delete"
 ```
 
 Required RBAC for docker-auth's ServiceAccount:
