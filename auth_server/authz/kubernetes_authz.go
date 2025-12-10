@@ -23,7 +23,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -34,11 +33,11 @@ import (
 
 	authorizationv1 "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apimachinery/pkg/util/cache"
+	"k8s.io/apiserver/pkg/util/webhook"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/utils/lru"
 )
 
 // KubernetesAuthzConfig defines configuration for Kubernetes RBAC authorization via SSRR.
@@ -66,13 +65,7 @@ type KubernetesAuthzConfig struct {
 type kubernetesAuthz struct {
 	cfg        *KubernetesAuthzConfig
 	restConfig *rest.Config
-	cache      *lru.Cache
-	cacheMutex sync.Mutex
-}
-
-type cacheEntry struct {
-	rules  []authorizationv1.ResourceRule
-	expiry time.Time
+	cache      *cache.LRUExpireCache
 }
 
 // Docker action to Kubernetes verb mapping (standard for Docker Registry).
@@ -146,12 +139,12 @@ func NewKubernetesAuthz(c *KubernetesAuthzConfig) (api.Authorizer, error) {
 		rc.Burst = c.Limits.Burst
 	}
 
-	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/pkg/authentication/token/cache/cached_token_authenticator.go#L64
-	cache := lru.New(4096)
+	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go#L130
+	authzCache := cache.NewLRUExpireCache(8192)
 
 	glog.V(1).Infof("Kubernetes authz configured (group=%s, resource=%s, cache_ttl=%s/%s)",
 		c.Review.APIGroup, c.Review.Resource, c.Cache.SuccessTTL, c.Cache.FailureTTL)
-	return &kubernetesAuthz{cfg: c, restConfig: rc, cache: cache}, nil
+	return &kubernetesAuthz{cfg: c, restConfig: rc, cache: authzCache}, nil
 }
 
 func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) {
@@ -208,27 +201,14 @@ func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) 
 func (ka *kubernetesAuthz) getRules(username string, groups []string, extra map[string][]string, ns string) ([]authorizationv1.ResourceRule, error) {
 	key := ka.computeCacheKey(username, groups, extra, ns)
 
-	ka.cacheMutex.Lock()
 	if val, ok := ka.cache.Get(key); ok {
-		entry := val.(cacheEntry)
-		if time.Now().Before(entry.expiry) {
-			ka.cacheMutex.Unlock()
-			return entry.rules, nil
-		}
-		ka.cache.Remove(key)
+		return val.([]authorizationv1.ResourceRule), nil
 	}
-	ka.cacheMutex.Unlock()
 
 	var rules []authorizationv1.ResourceRule
-	var lastErr error
 
-	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/pkg/util/webhook/webhook.go#L95
-	backoff := wait.Backoff{
-		Duration: 500 * time.Millisecond,
-		Factor:   1.5,
-		Jitter:   0.2,
-		Steps:    5,
-	}
+	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/pkg/util/webhook/webhook.go#L42
+	backoff := webhook.DefaultRetryBackoffWithInitialDelay(500 * time.Millisecond)
 
 	timeout := ka.cfg.Limits.RequestTimeout
 	if timeout == 0 {
@@ -253,45 +233,35 @@ func (ka *kubernetesAuthz) getRules(username string, groups []string, extra map[
 		Spec: authorizationv1.SelfSubjectRulesReviewSpec{Namespace: ns},
 	}
 
-	err = wait.ExponentialBackoff(backoff, func() (bool, error) {
+	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go#L235
+	err = webhook.WithExponentialBackoff(ctx, backoff, func() error {
 		start := time.Now()
-		res, err := client.AuthorizationV1().SelfSubjectRulesReviews().Create(ctx, ssrr, metav1.CreateOptions{})
+		res, ssrrErr := client.AuthorizationV1().SelfSubjectRulesReviews().Create(ctx, ssrr, metav1.CreateOptions{})
 		duration := time.Since(start).Seconds()
 
 		code := "200"
-		if err != nil {
+		if ssrrErr != nil {
 			code = "<error>"
 		}
 		k8sAuthzRequestsTotal.WithLabelValues(code).Inc()
 		k8sAuthzRequestLatencySeconds.WithLabelValues(code).Observe(duration)
 
-		if err != nil {
-			lastErr = err
-			if ctx.Err() != nil {
-				return false, ctx.Err()
-			}
-			return false, nil
+		if ssrrErr != nil {
+			return ssrrErr
 		}
 		rules = res.Status.ResourceRules
-		return true, nil
-	})
+		return nil
+	}, webhook.DefaultShouldRetry)
 
 	if err != nil {
 		if ka.cfg.Cache.FailureTTL > 0 {
-			ka.cacheMutex.Lock()
-			ka.cache.Add(key, cacheEntry{rules: nil, expiry: time.Now().Add(ka.cfg.Cache.FailureTTL)})
-			ka.cacheMutex.Unlock()
-		}
-		if lastErr != nil {
-			return nil, lastErr
+			ka.cache.Add(key, []authorizationv1.ResourceRule(nil), ka.cfg.Cache.FailureTTL)
 		}
 		return nil, err
 	}
 
 	if ka.cfg.Cache.SuccessTTL > 0 {
-		ka.cacheMutex.Lock()
-		ka.cache.Add(key, cacheEntry{rules: rules, expiry: time.Now().Add(ka.cfg.Cache.SuccessTTL)})
-		ka.cacheMutex.Unlock()
+		ka.cache.Add(key, rules, ka.cfg.Cache.SuccessTTL)
 	}
 
 	return rules, nil
