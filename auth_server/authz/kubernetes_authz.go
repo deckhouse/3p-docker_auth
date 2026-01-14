@@ -306,7 +306,7 @@ func (ka *kubernetesAuthz) isActionAllowed(rules []authorizationv1.ResourceRule,
 			continue
 		}
 		if len(rule.ResourceNames) == 0 {
-			continue
+			return true
 		}
 		for _, pattern := range rule.ResourceNames {
 			if matched, _ := doublestar.Match(pattern, resourcePath); matched {
