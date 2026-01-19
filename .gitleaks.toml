@@ -1,0 +1,9 @@
+[extend]
+useDefault = true  # Use built‑in rules
+
+[allowlist]
+paths = [
+  # Usage examples configs and scripts; keys and certificates specifically created for these purposes.
+  # Content not included in files or packages.
+  "examples/reference.yml",
+]
