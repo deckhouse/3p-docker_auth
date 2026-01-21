@@ -19,7 +19,6 @@ package authz
 import (
 	"context"
 	"fmt"
-	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -30,6 +29,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/cesanta/docker_auth/auth_server/api"
+	"github.com/cesanta/docker_auth/auth_server/k8s"
 
 	authorizationv1 "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,33 +37,10 @@ import (
 	"k8s.io/apiserver/pkg/util/webhook"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
-// KubernetesAuthzConfig defines configuration for Kubernetes RBAC authorization via SSRR.
-type KubernetesAuthzConfig struct {
-	Kubeconfig string `yaml:"kubeconfig,omitempty"`
-
-	Limits struct {
-		QPS            float32       `yaml:"qps,omitempty"`
-		Burst          int           `yaml:"burst,omitempty"`
-		RequestTimeout time.Duration `yaml:"request_timeout,omitempty"`
-	} `yaml:"limits,omitempty"`
-
-	Cache struct {
-		SuccessTTL time.Duration `yaml:"success_ttl,omitempty"`
-		FailureTTL time.Duration `yaml:"failure_ttl,omitempty"`
-	} `yaml:"cache,omitempty"`
-
-	Review struct {
-		APIGroup  string `yaml:"api_group,omitempty"`
-		Resource  string `yaml:"resource,omitempty"`
-		UserLabel string `yaml:"user_label,omitempty"`
-	} `yaml:"review,omitempty"`
-}
-
 type kubernetesAuthz struct {
-	cfg        *KubernetesAuthzConfig
+	cfg        *k8s.AuthConfig
 	restConfig *rest.Config
 	cache      *cache.LRUExpireCache
 }
@@ -98,53 +75,25 @@ func init() {
 	prometheus.MustRegister(k8sAuthzRequestLatencySeconds)
 }
 
-func (c *KubernetesAuthzConfig) Validate(configKey string) error {
-	if c == nil {
-		return fmt.Errorf("%s is nil", configKey)
-	}
-	if c.Review.APIGroup == "" || c.Review.Resource == "" {
-		return fmt.Errorf("%s.review.{api_group,resource} are required", configKey)
-	}
-	if c.Review.UserLabel == "" {
-		c.Review.UserLabel = "k8s_username"
-	}
-	return nil
-}
-
-func buildRestConfig(kubeconfig string) (*rest.Config, error) {
-	if kubeconfig != "" {
-		if _, statErr := os.Stat(kubeconfig); statErr != nil {
-			return nil, fmt.Errorf("kubeconfig not accessible: %w", statErr)
-		}
-		return clientcmd.BuildConfigFromFlags("", kubeconfig)
-	}
-	return rest.InClusterConfig()
-}
-
 // NewKubernetesAuthz creates a new Kubernetes RBAC authorizer using SelfSubjectRulesReview.
-func NewKubernetesAuthz(c *KubernetesAuthzConfig) (api.Authorizer, error) {
-	if err := c.Validate("kubernetes_authz"); err != nil {
-		return nil, err
+func NewKubernetesAuthz(config *k8s.AuthConfig) (api.Authorizer, error) {
+	if config == nil {
+		return nil, fmt.Errorf("config is nil")
 	}
 
-	rc, err := buildRestConfig(c.Kubeconfig)
+	rc, err := config.BuildRestConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to build Kubernetes REST config: %w", err)
-	}
-
-	if c.Limits.QPS > 0 {
-		rc.QPS = c.Limits.QPS
-	}
-	if c.Limits.Burst > 0 {
-		rc.Burst = c.Limits.Burst
 	}
 
 	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go#L130
 	authzCache := cache.NewLRUExpireCache(8192)
 
-	glog.V(1).Infof("Kubernetes authz configured (group=%s, resource=%s, cache_ttl=%s/%s)",
-		c.Review.APIGroup, c.Review.Resource, c.Cache.SuccessTTL, c.Cache.FailureTTL)
-	return &kubernetesAuthz{cfg: c, restConfig: rc, cache: authzCache}, nil
+	glog.V(1).Infof(
+		"Kubernetes authz configured (group=%s, resource=%s, cache_ttl=%s/%s)",
+		config.Authz.APIGroup, config.Authz.Resource, config.Cache.SuccessTTL, config.Cache.FailureTTL,
+	)
+	return &kubernetesAuthz{cfg: config, restConfig: rc, cache: authzCache}, nil
 }
 
 func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) {
@@ -153,14 +102,14 @@ func (ka *kubernetesAuthz) Authorize(ai *api.AuthRequestInfo) ([]string, error) 
 	}
 
 	username := ""
-	if vals, ok := ai.Labels[ka.cfg.Review.UserLabel]; ok && len(vals) > 0 {
+	if vals, ok := ai.Labels[k8s.UserLabel]; ok && len(vals) > 0 {
 		username = vals[0]
 	}
 	if username == "" {
 		return nil, api.NoMatch
 	}
 
-	groups := ai.Labels["groups"]
+	groups := ai.Labels[k8s.GroupsLabel]
 	extra := map[string][]string{}
 	for k, vs := range ai.Labels {
 		if k == "k8s_username" || k == "groups" {
@@ -205,8 +154,6 @@ func (ka *kubernetesAuthz) getRules(username string, groups []string, extra map[
 		return val.([]authorizationv1.ResourceRule), nil
 	}
 
-	var rules []authorizationv1.ResourceRule
-
 	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/pkg/util/webhook/webhook.go#L42
 	backoff := webhook.DefaultRetryBackoffWithInitialDelay(500 * time.Millisecond)
 
@@ -217,14 +164,14 @@ func (ka *kubernetesAuthz) getRules(username string, groups []string, extra map[
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	impersonatedConfig := *ka.restConfig
+	impersonatedConfig := rest.CopyConfig(ka.restConfig)
 	impersonatedConfig.Impersonate = rest.ImpersonationConfig{
 		UserName: username,
 		Groups:   groups,
 		Extra:    extra,
 	}
 
-	client, err := kubernetes.NewForConfig(&impersonatedConfig)
+	client, err := kubernetes.NewForConfig(impersonatedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create impersonated client: %w", err)
 	}
@@ -233,23 +180,33 @@ func (ka *kubernetesAuthz) getRules(username string, groups []string, extra map[
 		Spec: authorizationv1.SelfSubjectRulesReviewSpec{Namespace: ns},
 	}
 
+	var rules []authorizationv1.ResourceRule
+
 	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go#L235
 	err = webhook.WithExponentialBackoff(ctx, backoff, func() error {
 		start := time.Now()
-		res, ssrrErr := client.AuthorizationV1().SelfSubjectRulesReviews().Create(ctx, ssrr, metav1.CreateOptions{})
+
+		res, ssrrErr := client.
+			AuthorizationV1().
+			SelfSubjectRulesReviews().
+			Create(ctx, ssrr, metav1.CreateOptions{})
+
 		duration := time.Since(start).Seconds()
 
-		code := "200"
+		code := "ok"
 		if ssrrErr != nil {
-			code = "<error>"
+			code = "error"
 		}
+
 		k8sAuthzRequestsTotal.WithLabelValues(code).Inc()
 		k8sAuthzRequestLatencySeconds.WithLabelValues(code).Observe(duration)
 
 		if ssrrErr != nil {
 			return ssrrErr
 		}
+
 		rules = res.Status.ResourceRules
+
 		return nil
 	}, webhook.DefaultShouldRetry)
 
@@ -299,10 +256,10 @@ func (ka *kubernetesAuthz) isActionAllowed(rules []authorizationv1.ResourceRule,
 		if !slices.Contains(rule.Verbs, verb) && !slices.Contains(rule.Verbs, "*") {
 			continue
 		}
-		if !slices.Contains(rule.APIGroups, ka.cfg.Review.APIGroup) && !slices.Contains(rule.APIGroups, "*") {
+		if !slices.Contains(rule.APIGroups, ka.cfg.Authz.APIGroup) && !slices.Contains(rule.APIGroups, "*") {
 			continue
 		}
-		if !slices.Contains(rule.Resources, ka.cfg.Review.Resource) && !slices.Contains(rule.Resources, "*") {
+		if !slices.Contains(rule.Resources, ka.cfg.Authz.Resource) && !slices.Contains(rule.Resources, "*") {
 			continue
 		}
 		if len(rule.ResourceNames) == 0 {

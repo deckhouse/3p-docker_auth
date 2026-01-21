@@ -19,46 +19,22 @@ package authn
 import (
 	"context"
 	"fmt"
-	"os"
-	"time"
 
 	"github.com/cesanta/glog"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/cesanta/docker_auth/auth_server/api"
+	"github.com/cesanta/docker_auth/auth_server/k8s"
 
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 
 	apiauthn "k8s.io/apiserver/pkg/authentication/authenticator"
 	tokencache "k8s.io/apiserver/pkg/authentication/token/cache"
 	webhookauthn "k8s.io/apiserver/plugin/pkg/authenticator/token/webhook"
 )
 
-// KubernetesAuthConfig defines configuration for Kubernetes TokenReview authentication.
-type KubernetesAuthConfig struct {
-	Kubeconfig string `yaml:"kubeconfig,omitempty"`
-
-	Labels struct {
-		IncludeGroups bool `yaml:"include_groups,omitempty"`
-		IncludeExtra  bool `yaml:"include_extra,omitempty"`
-	} `yaml:"labels,omitempty"`
-
-	Limits struct {
-		QPS            float32       `yaml:"qps,omitempty"`
-		Burst          int           `yaml:"burst,omitempty"`
-		RequestTimeout time.Duration `yaml:"request_timeout,omitempty"`
-	} `yaml:"limits,omitempty"`
-
-	Cache struct {
-		SuccessTTL time.Duration `yaml:"success_ttl,omitempty"`
-		FailureTTL time.Duration `yaml:"failure_ttl,omitempty"`
-	} `yaml:"cache,omitempty"`
-}
-
 type KubernetesAuth struct {
-	cfg                *KubernetesAuthConfig
+	cfg                *k8s.AuthConfig
 	client             *kubernetes.Clientset
 	tokenAuthenticator apiauthn.Token
 }
@@ -86,39 +62,15 @@ func init() {
 	prometheus.MustRegister(k8sAuthnRequestLatencySeconds)
 }
 
-func (c *KubernetesAuthConfig) Validate(configKey string) error {
-	if c == nil {
-		return fmt.Errorf("%s is nil", configKey)
-	}
-	return nil
-}
-
-func buildRestConfig(kubeconfig string) (*rest.Config, error) {
-	if kubeconfig != "" {
-		if _, statErr := os.Stat(kubeconfig); statErr != nil {
-			return nil, fmt.Errorf("kubeconfig not accessible: %w", statErr)
-		}
-		return clientcmd.BuildConfigFromFlags("", kubeconfig)
-	}
-	return rest.InClusterConfig()
-}
-
 // NewKubernetesAuth creates a new Kubernetes authenticator using TokenReview API.
-func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
-	if err := c.Validate("kubernetes_auth"); err != nil {
-		return nil, err
+func NewKubernetesAuth(config *k8s.AuthConfig) (*KubernetesAuth, error) {
+	if config == nil {
+		return nil, fmt.Errorf("config is nil")
 	}
 
-	rc, err := buildRestConfig(c.Kubeconfig)
+	rc, err := config.BuildRestConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to build Kubernetes REST config: %w", err)
-	}
-
-	if c.Limits.QPS > 0 {
-		rc.QPS = c.Limits.QPS
-	}
-	if c.Limits.Burst > 0 {
-		rc.Burst = c.Limits.Burst
 	}
 
 	cs, err := kubernetes.NewForConfig(rc)
@@ -131,7 +83,7 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 		cs.AuthenticationV1(),
 		[]string{},
 		*webhookauthn.DefaultRetryBackoff(),
-		c.Limits.RequestTimeout,
+		config.Limits.RequestTimeout,
 		webhookauthn.AuthenticatorMetrics{
 			RecordRequestTotal: func(ctx context.Context, code string) {
 				k8sAuthnRequestsTotal.WithLabelValues(code).Inc()
@@ -146,10 +98,10 @@ func NewKubernetesAuth(c *KubernetesAuthConfig) (*KubernetesAuth, error) {
 	}
 
 	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/pkg/authentication/token/cache/cached_token_authenticator.go
-	cachingAuth := tokencache.New(tokenAuth, false, c.Cache.SuccessTTL, c.Cache.FailureTTL)
+	cachingAuth := tokencache.New(tokenAuth, false, config.Cache.SuccessTTL, config.Cache.FailureTTL)
 
-	glog.V(1).Infof("Kubernetes auth configured (cache_ttl=%s/%s)", c.Cache.SuccessTTL, c.Cache.FailureTTL)
-	return &KubernetesAuth{cfg: c, client: cs, tokenAuthenticator: cachingAuth}, nil
+	glog.V(1).Infof("Kubernetes auth configured (cache_ttl=%s/%s)", config.Cache.SuccessTTL, config.Cache.FailureTTL)
+	return &KubernetesAuth{cfg: config, client: cs, tokenAuthenticator: cachingAuth}, nil
 }
 
 func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString) (bool, api.Labels, error) {
@@ -173,12 +125,12 @@ func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString)
 	labels := api.Labels{}
 
 	if username := authResp.User.GetName(); username != "" {
-		labels["k8s_username"] = []string{username}
+		labels[k8s.UserLabel] = []string{username}
 	}
 
 	if ka.cfg.Labels.IncludeGroups {
 		if groups := authResp.User.GetGroups(); len(groups) > 0 {
-			labels["groups"] = append([]string(nil), groups...)
+			labels[k8s.GroupsLabel] = groups
 		}
 	}
 
@@ -186,7 +138,8 @@ func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString)
 		if extra := authResp.User.GetExtra(); extra != nil {
 			for k, v := range extra {
 				if len(v) > 0 {
-					labels[k] = append([]string(nil), v...)
+					key := k8s.ExtraLabelPrefix + k
+					labels[key] = v
 				}
 			}
 		}

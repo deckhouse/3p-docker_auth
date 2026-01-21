@@ -176,13 +176,14 @@ func NewAuthServer(c *Config) (*AuthServer, error) {
 			return nil, err
 		}
 		as.authenticators = append(as.authenticators, ka)
-	}
-	if c.KubernetesAuthz != nil {
-		k8sAuthz, err := authz.NewKubernetesAuthz(c.KubernetesAuthz)
-		if err != nil {
-			return nil, err
+
+		if c.KubernetesAuth.Authz != nil {
+			k8sAuthz, err := authz.NewKubernetesAuthz(c.KubernetesAuth)
+			if err != nil {
+				return nil, err
+			}
+			as.authorizers = append(as.authorizers, k8sAuthz)
 		}
-		as.authorizers = append(as.authorizers, k8sAuthz)
 	}
 	as.metricsHandler = promhttp.Handler()
 	return as, nil
