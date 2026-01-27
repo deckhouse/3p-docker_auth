@@ -86,7 +86,7 @@ func NewKubernetesAuthz(config *k8s.AuthConfig) (api.Authorizer, error) {
 }
 
 func (ka *kubernetesAuthz) Authorize(req *api.AuthRequestInfo) ([]string, error) {
-	if req.Account != "token" {
+	if req.Account != ka.cfg.UserName {
 		return nil, api.NoMatch
 	}
 

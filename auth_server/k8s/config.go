@@ -33,35 +33,83 @@ import (
 const (
 	defaultSuccessTTL = 5 * time.Minute
 	defaultFailureTTL = 30 * time.Second
+	defaultUserName   = "token"
 )
 
 // AuthConfig defines configuration for Kubernetes TokenReview authentication.
+// The password from `docker login` is treated as a Bearer token and validated
+// using Kubernetes TokenReview API. Results can be cached to reduce load on the API server.
 type AuthConfig struct {
+	// Kubeconfig is the optional path to a kubeconfig file for connecting to the Kubernetes API.
+	// If empty or not specified, in-cluster configuration is used (service account token and
+	// CA certificate mounted in the pod).
 	Kubeconfig string `yaml:"kubeconfig,omitempty"`
 
+	// UserName is the username that must be used for Kubernetes token authentication.
+	// Defaults to "token" if not specified.
+	// When using Kubernetes auth, the docker login username must match this value,
+	// and the password must be a valid Kubernetes bearer token.
+	UserName string `yaml:"user_name,omitempty"`
+
+	// Limits defines rate limiting and timeout settings for outgoing Kubernetes API requests.
 	Limits struct {
-		QPS            float32       `yaml:"qps,omitempty"`
-		Burst          int           `yaml:"burst,omitempty"`
+		// QPS is the maximum queries per second for Kubernetes API client throttling.
+		// If zero, DefaultQPS: 5 is used.
+		QPS float32 `yaml:"qps,omitempty"`
+		// Burst is the maximum burst size for Kubernetes API client throttling.
+		// If zero, DefaultBurst: 10 is used.
+		Burst int `yaml:"burst,omitempty"`
+		// RequestTimeout is the timeout duration for individual Kubernetes API requests
+		// (e.g., TokenReview, SelfSubjectRulesReview).
+		// If not specified, a default timeout is used.
 		RequestTimeout time.Duration `yaml:"request_timeout,omitempty"`
 	} `yaml:"limits,omitempty"`
 
 	// Cache defines TTL (Time To Live) settings for caching authentication and authorization results.
-	// If TTL is negative, caching will be disabled for that result type.
+	// If TTL is 0 or negative, caching will be disabled for that result type.
 	Cache struct {
 		// SuccessTTL is the duration to cache successful authentication/authorization results.
+		// Defaults to 5 minutes if not specified.
+		// Setting to 0 disables caching for successful results.
 		SuccessTTL time.Duration `yaml:"success_ttl,omitempty"`
 		// FailureTTL is the duration to cache failed authentication/authorization results.
+		// Defaults to 30 seconds if not specified.
+		// Setting to 0 disables caching for failed results.
 		FailureTTL time.Duration `yaml:"failure_ttl,omitempty"`
 	} `yaml:"cache,omitempty"`
 
+	// Authz is an optional configuration for Kubernetes authorization (RBAC via SelfSubjectRulesReview).
+	// When provided, enables authorization checks that map Docker actions (pull/push/delete)
+	// to Kubernetes verbs for a custom resource in the specified API group.
+	// Supports recursive globbing (e.g., "images/**") in RBAC resourceNames.
+	// If nil, Kubernetes authorization will not be enabled.
 	Authz *AuthzConfig `yaml:"authz,omitempty"`
 }
 
+// AuthzConfig defines configuration for Kubernetes authorization using SelfSubjectRulesReview.
+// It specifies the API group and resource name to check when authorizing Docker registry actions.
+// The authorization process maps Docker actions (pull->get, push->create, delete->delete) to
+// Kubernetes verbs and checks if the authenticated user has the required permissions for the
+// specified API group and resource.
 type AuthzConfig struct {
+	// APIGroup is the Kubernetes API group for the custom resource used in authorization checks.
+	// This is used to filter ResourceRules when checking permissions via SelfSubjectRulesReview.
+	// Examples: "registry.deckhouse.io", "apps", "extensions".
+	// Required field.
 	APIGroup string `yaml:"api_group,omitempty"`
+	// Resource is the Kubernetes resource name (plural form) used in authorization checks.
+	// This is used to filter ResourceRules when checking permissions via SelfSubjectRulesReview.
+	// The resource name should match the resource defined in your Kubernetes RBAC rules.
+	// Examples: "payloadrepositorytags", "deployments", "pods".
+	// Required field.
 	Resource string `yaml:"resource,omitempty"`
 }
 
+// Validate validates the AuthzConfig fields to ensure required values are set.
+// It checks that the following fields are non-empty:
+//   - APIGroup: Kubernetes API group for the custom resource
+//   - Resource: Kubernetes resource name (plural form)
+// Returns an error if validation fails, with the error message prefixed by configKey.
 func (c AuthzConfig) Validate(configKey string) error {
 	err := validation.ValidateStruct(&c,
 		validation.Field(&c.APIGroup, validation.Required),
@@ -109,6 +157,12 @@ func (c *AuthzConfig) IsActionAllowed(rules []authorizationv1.ResourceRule, verb
 	return false
 }
 
+// Validate validates the AuthConfig and sets default values for optional fields.
+// Default values are set if not specified:
+//   - Cache.SuccessTTL: 5 minutes
+//   - Cache.FailureTTL: 30 seconds
+//   - UserName: "token"
+// Also validates the nested Authz configuration if present.
 func (c *AuthConfig) Validate(configKey string) error {
 	if c.Cache.SuccessTTL == 0 {
 		c.Cache.SuccessTTL = defaultSuccessTTL
@@ -116,24 +170,27 @@ func (c *AuthConfig) Validate(configKey string) error {
 	if c.Cache.FailureTTL == 0 {
 		c.Cache.FailureTTL = defaultFailureTTL
 	}
+	if c.UserName == "" {
+		c.UserName = defaultUserName
+	}
 
 	return validation.ValidateStruct(c,
 		validation.Field(&c.Authz),
 	)
 }
 
+// BuildRestConfig creates and configures a Kubernetes REST client configuration.
+// It initializes the config from kubeconfig file (if specified) or in-cluster configuration,
+// and applies QPS and Burst rate limiting settings from the AuthConfig.
+// Returns the configured rest.Config or an error if initialization fails.
 func (c AuthConfig) BuildRestConfig() (*rest.Config, error) {
 	rc, err := c.initRestConfig()
 	if err != nil {
 		return nil, fmt.Errorf("cannot initialize: %w", err)
 	}
 
-	if c.Limits.QPS > 0 {
-		rc.QPS = c.Limits.QPS
-	}
-	if c.Limits.Burst > 0 {
-		rc.Burst = c.Limits.Burst
-	}
+	rc.QPS = c.Limits.QPS
+	rc.Burst = c.Limits.Burst
 
 	return rc, nil
 }
