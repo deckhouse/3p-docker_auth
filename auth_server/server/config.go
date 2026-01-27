@@ -44,7 +44,7 @@ type Config struct {
 	Server         ServerConfig                   `yaml:"server"`
 	Token          TokenConfig                    `yaml:"token"`
 	Users          map[string]*authn.Requirements `yaml:"users,omitempty"`
-	KubernetesAuth *k8s.AuthConfig                `yaml:"kubernetes,omitempty"`
+	KubernetesAuth *k8s.AuthConfig                `yaml:"kubernetes_auth,omitempty"`
 	GoogleAuth     *authn.GoogleAuthConfig        `yaml:"google_auth,omitempty"`
 	GitHubAuth     *authn.GitHubAuthConfig        `yaml:"github_auth,omitempty"`
 	OIDCAuth       *authn.OIDCAuthConfig          `yaml:"oidc_auth,omitempty"`
