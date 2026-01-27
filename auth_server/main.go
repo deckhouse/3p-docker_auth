@@ -58,7 +58,7 @@ func stringToUint16(s string) uint16 {
 }
 
 func ServeOnce(c *server.Config, cf string) (*server.AuthServer, *http.Server) {
-	glog.Infof("Config from %s (%d users, %d ACL static entries, kubernetes_auth: %t)", cf, len(c.Users), len(c.ACL), c.KubernetesAuth != nil)
+	glog.Infof("Config from %s (%d users, %d ACL static entries)", cf, len(c.Users), len(c.ACL))
 	as, err := server.NewAuthServer(c)
 	if err != nil {
 		glog.Exitf("Failed to create auth server: %s", err)
