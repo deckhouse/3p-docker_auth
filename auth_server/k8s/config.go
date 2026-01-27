@@ -20,9 +20,11 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"github.com/cesanta/glog"
 	authorizationv1 "k8s.io/api/authorization/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -98,13 +100,13 @@ type AuthConfig struct {
 type AuthzConfig struct {
 	// APIGroup is the Kubernetes API group for the custom resource used in authorization checks.
 	// This is used to filter ResourceRules when checking permissions via SelfSubjectRulesReview.
-	// Examples: "registry.deckhouse.io", "apps", "extensions".
+	// Examples: "registry.example.com", "apps", "extensions".
 	// Required field.
 	APIGroup string `yaml:"api_group,omitempty"`
 	// Resource is the Kubernetes resource name (plural form) used in authorization checks.
 	// This is used to filter ResourceRules when checking permissions via SelfSubjectRulesReview.
 	// The resource name should match the resource defined in your Kubernetes RBAC rules.
-	// Examples: "payloadrepositorytags", "deployments", "pods".
+	// Examples: "registries", "deployments", "pods".
 	// Required field.
 	Resource string `yaml:"resource,omitempty"`
 }
@@ -113,6 +115,7 @@ type AuthzConfig struct {
 // It checks that the following fields are non-empty:
 //   - APIGroup: Kubernetes API group for the custom resource
 //   - Resource: Kubernetes resource name (plural form)
+//
 // Returns an error if validation fails, with the error message prefixed by configKey.
 func (c AuthzConfig) Validate(configKey string) error {
 	err := validation.ValidateStruct(&c,
@@ -127,6 +130,53 @@ func (c AuthzConfig) Validate(configKey string) error {
 	return nil
 }
 
+// matchRule checks if a single ResourceRule matches the verb, API group, resource, and resource path.
+// It performs case-insensitive matching for API groups and resources.
+func (c *AuthzConfig) matchRule(rule authorizationv1.ResourceRule, verb string, resourcePath string) bool {
+	if !slices.Contains(rule.Verbs, verb) && !slices.Contains(rule.Verbs, "*") {
+		return false
+	}
+
+	apiGroupMatch := false
+	for _, apiGroup := range rule.APIGroups {
+		if apiGroup == "*" || strings.EqualFold(apiGroup, c.APIGroup) {
+			apiGroupMatch = true
+			break
+		}
+	}
+
+	if !apiGroupMatch {
+		return false
+	}
+
+	resourceMatch := false
+	for _, resource := range rule.Resources {
+		if resource == "*" || strings.EqualFold(resource, c.Resource) {
+			resourceMatch = true
+			break
+		}
+	}
+
+	if !resourceMatch {
+		return false
+	}
+
+	if len(rule.ResourceNames) == 0 {
+		return true
+	}
+
+	for _, pattern := range rule.ResourceNames {
+		lp := strings.ToLower(pattern)
+		if matched, err := doublestar.Match(lp, resourcePath); matched {
+			return true
+		} else if err != nil {
+			glog.Warningf("Error matching pattern %q for path %q: %v", pattern, resourcePath, err)
+		}
+	}
+
+	return false
+}
+
 // IsActionAllowed checks if the verb is allowed for the resource path using doublestar matching.
 // Pattern matching uses github.com/bmatcuk/doublestar/v4 for recursive glob support (**).
 func (c *AuthzConfig) IsActionAllowed(rules []authorizationv1.ResourceRule, verb string, resourcePath string) bool {
@@ -135,26 +185,8 @@ func (c *AuthzConfig) IsActionAllowed(rules []authorizationv1.ResourceRule, verb
 	}
 
 	for _, rule := range rules {
-		if !slices.Contains(rule.Verbs, verb) && !slices.Contains(rule.Verbs, "*") {
-			continue
-		}
-
-		if !slices.Contains(rule.APIGroups, c.APIGroup) && !slices.Contains(rule.APIGroups, "*") {
-			continue
-		}
-
-		if !slices.Contains(rule.Resources, c.Resource) && !slices.Contains(rule.Resources, "*") {
-			continue
-		}
-
-		if len(rule.ResourceNames) == 0 {
+		if c.matchRule(rule, verb, strings.ToLower(resourcePath)) {
 			return true
-		}
-
-		for _, pattern := range rule.ResourceNames {
-			if matched, _ := doublestar.Match(pattern, resourcePath); matched {
-				return true
-			}
 		}
 	}
 
@@ -166,14 +198,17 @@ func (c *AuthzConfig) IsActionAllowed(rules []authorizationv1.ResourceRule, verb
 //   - Cache.SuccessTTL: 5 minutes
 //   - Cache.FailureTTL: 30 seconds
 //   - UserName: "token"
+//
 // Also validates the nested Authz configuration if present.
 func (c *AuthConfig) Validate(configKey string) error {
 	if c.Cache.SuccessTTL == 0 {
 		c.Cache.SuccessTTL = defaultSuccessTTL
 	}
+
 	if c.Cache.FailureTTL == 0 {
 		c.Cache.FailureTTL = defaultFailureTTL
 	}
+
 	if c.UserName == "" {
 		c.UserName = defaultUserName
 	}
@@ -204,7 +239,9 @@ func (c AuthConfig) initRestConfig() (*rest.Config, error) {
 		if _, statErr := os.Stat(c.Kubeconfig); statErr != nil {
 			return nil, fmt.Errorf("kubeconfig not accessible: %w", statErr)
 		}
+
 		return clientcmd.BuildConfigFromFlags("", c.Kubeconfig)
 	}
+
 	return rest.InClusterConfig()
 }

@@ -108,9 +108,9 @@ kubernetes_auth:
   # Enable Kubernetes authorization (RBAC via SelfSubjectRulesReview)
   authz:
     # Required: Kubernetes API group for the custom resource
-    api_group: "registry.deckhouse.io"
+    api_group: "registry.example.com"
     # Required: Kubernetes resource name (plural form)
-    resource: "payloadrepositorytags"
+    resource: "registries"
 ```
 
 **When authorization is enabled:**
@@ -148,8 +148,8 @@ metadata:
   name: registry-reader
   namespace: my-namespace
 rules:
-- apiGroups: ["registry.deckhouse.io"]
-  resources: ["payloadrepositorytags"]
+- apiGroups: ["registry.example.com"]
+  resources: ["registries"]
   verbs: ["get"]
   resourceNames:
     - "my-app"
@@ -161,8 +161,8 @@ metadata:
   name: registry-writer
   namespace: my-namespace
 rules:
-- apiGroups: ["registry.deckhouse.io"]
-  resources: ["payloadrepositorytags"]
+- apiGroups: ["registry.example.com"]
+  resources: ["registries"]
   verbs: ["get", "create", "delete"]
   resourceNames:
     - "my-app/**"
@@ -210,8 +210,8 @@ acl:
 
 kubernetes_auth:
   authz:
-    api_group: "registry.deckhouse.io"
-    resource: "payloadrepositorytags"
+    api_group: "registry.example.com"
+    resource: "registries"
 # User in "developers" group gets access from ACL, Kubernetes authz is not evaluated
 
 # Scenario 2: ACL denies (or NoMatch), Kubernetes authz allows
@@ -222,8 +222,8 @@ acl:
 
 kubernetes_auth:
   authz:
-    api_group: "registry.deckhouse.io"
-    resource: "payloadrepositorytags"
+    api_group: "registry.example.com"
+    resource: "registries"
 # ACL returns NoMatch for developers group, Kubernetes RBAC allows → Access granted
 
 # Scenario 3: ACL explicitly denies, Kubernetes authz allows
@@ -234,8 +234,8 @@ acl:
 
 kubernetes_auth:
   authz:
-    api_group: "registry.deckhouse.io"
-    resource: "payloadrepositorytags"
+    api_group: "registry.example.com"
+    resource: "registries"
 # ACL explicitly denies, but Kubernetes RBAC allows → Access granted (OR logic)
 
 # Scenario 4: Both deny
@@ -246,8 +246,8 @@ acl:
 
 kubernetes_auth:
   authz:
-    api_group: "registry.deckhouse.io"
-    resource: "payloadrepositorytags"
+    api_group: "registry.example.com"
+    resource: "registries"
 # ACL denies, Kubernetes authz also denies → Access denied
 ```
 
@@ -351,8 +351,8 @@ kubernetes_auth:
     failure_ttl: "30s"
   # Authorization is ENABLED - Kubernetes RBAC will be checked
   authz:
-    api_group: "registry.deckhouse.io"
-    resource: "payloadrepositorytags"
+    api_group: "registry.example.com"
+    resource: "registries"
 
 ```yaml
 kubernetes_auth:
@@ -364,8 +364,8 @@ kubernetes_auth:
     success_ttl: "5m"
     failure_ttl: "30s"
   authz:
-    api_group: "registry.deckhouse.io"
-    resource: "payloadrepositorytags"
+    api_group: "registry.example.com"
+    resource: "registries"
 ```
 
 With corresponding Kubernetes RBAC rules:
@@ -378,8 +378,8 @@ metadata:
   name: registry-developer
   namespace: dev
 rules:
-- apiGroups: ["registry.deckhouse.io"]
-  resources: ["payloadrepositorytags"]
+- apiGroups: ["registry.example.com"]
+  resources: ["registries"]
   verbs: ["get", "create"]
   resourceNames:
     - "my-app/**"

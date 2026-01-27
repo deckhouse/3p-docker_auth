@@ -258,9 +258,9 @@ kubernetes_auth:
   #
   # authz:
   #   # Required: Kubernetes API group for the custom resource
-  #   api_group: "registry.deckhouse.io"
+  #   api_group: "registry.example.com"
   #   # Required: Kubernetes resource name (plural form)
-  #   resource: "payloadrepositorytags"
+  #   resource: "registries"
 
 # Gitlab authentication.
 # ==! NB: DO NOT ENTER YOUR Gitlab PASSWORD AT "docker login". IT WILL NOT WORK.

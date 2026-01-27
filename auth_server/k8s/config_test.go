@@ -334,6 +334,146 @@ func TestAuthzConfig_IsActionAllowed(t *testing.T) {
 			resourcePath: "team-frontend/apps/web",
 			want:        true,
 		},
+		{
+			name: "case-insensitive resourcePath - uppercase",
+			rules: []authorizationv1.ResourceRule{
+				{
+					Verbs:      []string{"get"},
+					APIGroups:  []string{"registry.example.com"},
+					Resources:  []string{"repositories"},
+					ResourceNames: []string{"foo/bar"},
+				},
+			},
+			verb:        "get",
+			resourcePath: "FOO/BAR",
+			want:        true,
+		},
+		{
+			name: "case-insensitive resourcePath - mixed case",
+			rules: []authorizationv1.ResourceRule{
+				{
+					Verbs:      []string{"get"},
+					APIGroups:  []string{"registry.example.com"},
+					Resources:  []string{"repositories"},
+					ResourceNames: []string{"foo/bar"},
+				},
+			},
+			verb:        "get",
+			resourcePath: "FoO/BaR",
+			want:        true,
+		},
+		{
+			name: "case-insensitive API group - uppercase",
+			rules: []authorizationv1.ResourceRule{
+				{
+					Verbs:      []string{"get"},
+					APIGroups:  []string{"REGISTRY.EXAMPLE.COM"},
+					Resources:  []string{"repositories"},
+					ResourceNames: []string{},
+				},
+			},
+			verb:        "get",
+			resourcePath: "foo/bar",
+			want:        true,
+		},
+		{
+			name: "case-insensitive API group - mixed case",
+			rules: []authorizationv1.ResourceRule{
+				{
+					Verbs:      []string{"get"},
+					APIGroups:  []string{"Registry.Example.Com"},
+					Resources:  []string{"repositories"},
+					ResourceNames: []string{},
+				},
+			},
+			verb:        "get",
+			resourcePath: "foo/bar",
+			want:        true,
+		},
+		{
+			name: "case-insensitive resource - uppercase",
+			rules: []authorizationv1.ResourceRule{
+				{
+					Verbs:      []string{"get"},
+					APIGroups:  []string{"registry.example.com"},
+					Resources:  []string{"REPOSITORIES"},
+					ResourceNames: []string{},
+				},
+			},
+			verb:        "get",
+			resourcePath: "foo/bar",
+			want:        true,
+		},
+		{
+			name: "case-insensitive resource - mixed case",
+			rules: []authorizationv1.ResourceRule{
+				{
+					Verbs:      []string{"get"},
+					APIGroups:  []string{"registry.example.com"},
+					Resources:  []string{"Repositories"},
+					ResourceNames: []string{},
+				},
+			},
+			verb:        "get",
+			resourcePath: "foo/bar",
+			want:        true,
+		},
+		{
+			name: "case-insensitive pattern - uppercase pattern",
+			rules: []authorizationv1.ResourceRule{
+				{
+					Verbs:      []string{"get"},
+					APIGroups:  []string{"registry.example.com"},
+					Resources:  []string{"repositories"},
+					ResourceNames: []string{"FOO/BAR"},
+				},
+			},
+			verb:        "get",
+			resourcePath: "foo/bar",
+			want:        true,
+		},
+		{
+			name: "case-insensitive pattern - mixed case pattern",
+			rules: []authorizationv1.ResourceRule{
+				{
+					Verbs:      []string{"get"},
+					APIGroups:  []string{"registry.example.com"},
+					Resources:  []string{"repositories"},
+					ResourceNames: []string{"FoO/BaR"},
+				},
+			},
+			verb:        "get",
+			resourcePath: "foo/bar",
+			want:        true,
+		},
+		{
+			name: "case-insensitive pattern with wildcard - uppercase",
+			rules: []authorizationv1.ResourceRule{
+				{
+					Verbs:      []string{"get"},
+					APIGroups:  []string{"registry.example.com"},
+					Resources:  []string{"repositories"},
+					ResourceNames: []string{"FOO/*"},
+				},
+			},
+			verb:        "get",
+			resourcePath: "foo/bar",
+			want:        true,
+		},
+		{
+			name: "case-insensitive doublestar pattern - uppercase",
+			rules: []authorizationv1.ResourceRule{
+				{
+					Verbs:      []string{"get"},
+					APIGroups:  []string{"registry.example.com"},
+					Resources:  []string{"repositories"},
+					ResourceNames: []string{"FOO/**"},
+				},
+			},
+			verb:        "get",
+			resourcePath: "foo/bar/baz",
+			want:        true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -383,6 +523,42 @@ func TestAuthzConfig_IsActionAllowed_DifferentConfigs(t *testing.T) {
 					Verbs:      []string{"get"},
 					APIGroups:  []string{"registry.example.com"},
 					Resources:  []string{"images"},
+					ResourceNames: []string{},
+				},
+			},
+			verb:        "get",
+			resourcePath: "foo/bar",
+			want:        true,
+		},
+		{
+			name: "case-insensitive API group in config",
+			cfg: &AuthzConfig{
+				APIGroup: "REGISTRY.EXAMPLE.COM",
+				Resource: "repositories",
+			},
+			rules: []authorizationv1.ResourceRule{
+				{
+					Verbs:      []string{"get"},
+					APIGroups:  []string{"registry.example.com"},
+					Resources:  []string{"repositories"},
+					ResourceNames: []string{},
+				},
+			},
+			verb:        "get",
+			resourcePath: "foo/bar",
+			want:        true,
+		},
+		{
+			name: "case-insensitive resource in config",
+			cfg: &AuthzConfig{
+				APIGroup: "registry.example.com",
+				Resource: "REPOSITORIES",
+			},
+			rules: []authorizationv1.ResourceRule{
+				{
+					Verbs:      []string{"get"},
+					APIGroups:  []string{"registry.example.com"},
+					Resources:  []string{"repositories"},
 					ResourceNames: []string{},
 				},
 			},
