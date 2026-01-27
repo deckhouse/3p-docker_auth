@@ -1,3 +1,19 @@
+/*
+   Copyright 2026 Flant
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       https://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package k8s
 
 import (
@@ -21,19 +37,18 @@ const (
 type AuthConfig struct {
 	Kubeconfig string `yaml:"kubeconfig,omitempty"`
 
-	Labels struct {
-		IncludeGroups bool `yaml:"include_groups,omitempty"`
-		IncludeExtra  bool `yaml:"include_extra,omitempty"`
-	} `yaml:"labels,omitempty"`
-
 	Limits struct {
 		QPS            float32       `yaml:"qps,omitempty"`
 		Burst          int           `yaml:"burst,omitempty"`
 		RequestTimeout time.Duration `yaml:"request_timeout,omitempty"`
 	} `yaml:"limits,omitempty"`
 
+	// Cache defines TTL (Time To Live) settings for caching authentication and authorization results.
+	// If TTL is negative, caching will be disabled for that result type.
 	Cache struct {
+		// SuccessTTL is the duration to cache successful authentication/authorization results.
 		SuccessTTL time.Duration `yaml:"success_ttl,omitempty"`
+		// FailureTTL is the duration to cache failed authentication/authorization results.
 		FailureTTL time.Duration `yaml:"failure_ttl,omitempty"`
 	} `yaml:"cache,omitempty"`
 
@@ -58,8 +73,15 @@ func (c AuthzConfig) Validate(configKey string) error {
 	return nil
 }
 
-func (c AuthConfig) Validate(configKey string) error {
-	return validation.ValidateStruct(&c,
+func (c *AuthConfig) Validate(configKey string) error {
+	if c.Cache.SuccessTTL == 0 {
+		c.Cache.SuccessTTL = 5 * time.Minute
+	}
+	if c.Cache.FailureTTL == 0 {
+		c.Cache.FailureTTL = 30 * time.Second
+	}
+
+	return validation.ValidateStruct(c,
 		validation.Field(&c.Authz),
 	)
 }

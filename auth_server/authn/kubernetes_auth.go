@@ -1,5 +1,5 @@
 /*
-   Copyright 2025 Flant
+   Copyright 2026 Flant
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -98,9 +98,17 @@ func NewKubernetesAuth(config *k8s.AuthConfig) (*KubernetesAuth, error) {
 	}
 
 	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/pkg/authentication/token/cache/cached_token_authenticator.go
-	cachingAuth := tokencache.New(tokenAuth, false, config.Cache.SuccessTTL, config.Cache.FailureTTL)
+	cachingAuth := tokencache.New(
+		tokenAuth,
+		false,
+		config.Cache.SuccessTTL,
+		config.Cache.FailureTTL,
+	)
 
-	glog.V(1).Infof("Kubernetes auth configured (cache_ttl=%s/%s)", config.Cache.SuccessTTL, config.Cache.FailureTTL)
+	glog.V(1).Infof(
+		"Kubernetes auth configured (cache_ttl=%s/%s)",
+		config.Cache.SuccessTTL, config.Cache.FailureTTL,
+	)
 	return &KubernetesAuth{cfg: config, client: cs, tokenAuthenticator: cachingAuth}, nil
 }
 
@@ -122,30 +130,15 @@ func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString)
 		return false, nil, nil
 	}
 
-	labels := api.Labels{}
+	userInfo := k8s.UserInfoFromUser(authResp.User)
+	labels := userInfo.ToLabels()
 
-	if username := authResp.User.GetName(); username != "" {
-		labels[k8s.UserLabel] = []string{username}
+	// Set standard "groups" label like other auth methods
+	if len(userInfo.Groups) > 0 {
+		labels["groups"] = userInfo.Groups
 	}
 
-	if ka.cfg.Labels.IncludeGroups {
-		if groups := authResp.User.GetGroups(); len(groups) > 0 {
-			labels[k8s.GroupsLabel] = groups
-		}
-	}
-
-	if ka.cfg.Labels.IncludeExtra {
-		if extra := authResp.User.GetExtra(); extra != nil {
-			for k, v := range extra {
-				if len(v) > 0 {
-					key := k8s.ExtraLabelPrefix + k
-					labels[key] = v
-				}
-			}
-		}
-	}
-
-	glog.V(1).Infof("Kubernetes authn success: %s", authResp.User.GetName())
+	glog.V(1).Infof("Kubernetes authn success: %s", userInfo.Name)
 	return true, labels, nil
 }
 
