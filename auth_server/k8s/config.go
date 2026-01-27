@@ -19,8 +19,11 @@ package k8s
 import (
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
+	"github.com/bmatcuk/doublestar/v4"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
@@ -28,9 +31,8 @@ import (
 )
 
 const (
-	UserLabel        = "k8s-username"
-	GroupsLabel      = "k8s-groups"
-	ExtraLabelPrefix = "k8s-extra-"
+	defaultSuccessTTL = 5 * time.Minute
+	defaultFailureTTL = 30 * time.Second
 )
 
 // AuthConfig defines configuration for Kubernetes TokenReview authentication.
@@ -73,12 +75,46 @@ func (c AuthzConfig) Validate(configKey string) error {
 	return nil
 }
 
+// IsActionAllowed checks if the verb is allowed for the resource path using doublestar matching.
+// Pattern matching uses github.com/bmatcuk/doublestar/v4 for recursive glob support (**).
+func (c *AuthzConfig) IsActionAllowed(rules []authorizationv1.ResourceRule, verb string, resourcePath string) bool {
+	if resourcePath == "" {
+		return false
+	}
+
+	for _, rule := range rules {
+		if !slices.Contains(rule.Verbs, verb) && !slices.Contains(rule.Verbs, "*") {
+			continue
+		}
+
+		if !slices.Contains(rule.APIGroups, c.APIGroup) && !slices.Contains(rule.APIGroups, "*") {
+			continue
+		}
+
+		if !slices.Contains(rule.Resources, c.Resource) && !slices.Contains(rule.Resources, "*") {
+			continue
+		}
+
+		if len(rule.ResourceNames) == 0 {
+			return true
+		}
+
+		for _, pattern := range rule.ResourceNames {
+			if matched, _ := doublestar.Match(pattern, resourcePath); matched {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func (c *AuthConfig) Validate(configKey string) error {
 	if c.Cache.SuccessTTL == 0 {
-		c.Cache.SuccessTTL = 5 * time.Minute
+		c.Cache.SuccessTTL = defaultSuccessTTL
 	}
 	if c.Cache.FailureTTL == 0 {
-		c.Cache.FailureTTL = 30 * time.Second
+		c.Cache.FailureTTL = defaultFailureTTL
 	}
 
 	return validation.ValidateStruct(c,

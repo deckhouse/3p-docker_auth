@@ -19,11 +19,8 @@ package authz
 import (
 	"context"
 	"fmt"
-	"slices"
-	"strings"
 	"time"
 
-	"github.com/bmatcuk/doublestar/v4"
 	"github.com/cesanta/glog"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -42,13 +39,6 @@ type kubernetesAuthz struct {
 	cfg        *k8s.AuthConfig
 	restConfig *rest.Config
 	cache      *cache.LRUExpireCache
-}
-
-// Docker action to Kubernetes verb mapping (standard for Docker Registry).
-var defaultVerbs = map[string]string{
-	"pull":   "get",
-	"push":   "create",
-	"delete": "delete",
 }
 
 var (
@@ -85,8 +75,7 @@ func NewKubernetesAuthz(config *k8s.AuthConfig) (api.Authorizer, error) {
 		return nil, fmt.Errorf("failed to build Kubernetes REST config: %w", err)
 	}
 
-	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go#L130
-	authzCache := cache.NewLRUExpireCache(8192)
+	authzCache := cache.NewLRUExpireCache(k8s.DefaultCacheSize)
 
 	glog.V(1).Infof(
 		"Kubernetes authz configured (group=%s, resource=%s, cache_ttl=%s/%s)",
@@ -106,7 +95,10 @@ func (ka *kubernetesAuthz) Authorize(req *api.AuthRequestInfo) ([]string, error)
 		return nil, api.NoMatch
 	}
 
-	ns, repoPath := ka.splitNamespaceAndPath(req.Name)
+	ns, repoPath := k8s.SplitNamespaceAndPath(req.Name)
+	if repoPath == "" {
+		return nil, api.NoMatch
+	}
 
 	rules, err := ka.getRules(userInfo, ns)
 	if err != nil {
@@ -121,13 +113,13 @@ func (ka *kubernetesAuthz) Authorize(req *api.AuthRequestInfo) ([]string, error)
 	allowed := []string{}
 
 	for _, action := range req.Actions {
-		verb, ok := defaultVerbs[action]
+		verb, ok := k8s.GetK8sVerb(action)
 		if !ok {
 			glog.Warningf("Unknown action %q, ignoring", action)
 			continue
 		}
 
-		if ka.isActionAllowed(rules, verb, repoPath) {
+		if ka.cfg.Authz.IsActionAllowed(rules, verb, repoPath) {
 			allowed = append(allowed, action)
 		}
 	}
@@ -162,13 +154,13 @@ func (ka *kubernetesAuthz) getRules(userInfo *k8s.UserInfo, ns string) ([]author
 
 // getRulesFromK8s fetches resource rules from Kubernetes using SelfSubjectRulesReview with retry logic and metrics.
 func (ka *kubernetesAuthz) getRulesFromK8s(userInfo *k8s.UserInfo, ns string) ([]authorizationv1.ResourceRule, error) {
-	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/pkg/util/webhook/webhook.go#L42
-	backoff := webhook.DefaultRetryBackoffWithInitialDelay(500 * time.Millisecond)
+	backoff := webhook.DefaultRetryBackoffWithInitialDelay(k8s.DefaultBackoffInitialDelay)
 
 	timeout := ka.cfg.Limits.RequestTimeout
 	if timeout == 0 {
-		timeout = 10 * time.Second
+		timeout = k8s.DefaultRequestTimeout
 	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -219,51 +211,6 @@ func (ka *kubernetesAuthz) getRulesFromK8s(userInfo *k8s.UserInfo, ns string) ([
 	}
 
 	return rules, nil
-}
-
-// splitNamespaceAndPath splits a repository name into namespace and relative path.
-// The format is "namespace/path" where namespace is required and path is optional.
-func (ka *kubernetesAuthz) splitNamespaceAndPath(name string) (string, string) {
-	var relativePath string
-
-	parts := strings.SplitN(name, "/", 2)
-
-	ns := parts[0]
-	if len(parts) == 2 {
-		relativePath = parts[1]
-	}
-
-	return ns, relativePath
-}
-
-// isActionAllowed checks if the verb is allowed for the resource path using doublestar matching.
-// Pattern matching uses github.com/bmatcuk/doublestar/v4 for recursive glob support (**).
-func (ka *kubernetesAuthz) isActionAllowed(rules []authorizationv1.ResourceRule, verb string, resourcePath string) bool {
-	for _, rule := range rules {
-		if !slices.Contains(rule.Verbs, verb) && !slices.Contains(rule.Verbs, "*") {
-			continue
-		}
-
-		if !slices.Contains(rule.APIGroups, ka.cfg.Authz.APIGroup) && !slices.Contains(rule.APIGroups, "*") {
-			continue
-		}
-
-		if !slices.Contains(rule.Resources, ka.cfg.Authz.Resource) && !slices.Contains(rule.Resources, "*") {
-			continue
-		}
-
-		if len(rule.ResourceNames) == 0 {
-			return true
-		}
-
-		for _, pattern := range rule.ResourceNames {
-			if matched, _ := doublestar.Match(pattern, resourcePath); matched {
-				return true
-			}
-		}
-	}
-
-	return false
 }
 
 func (ka *kubernetesAuthz) Stop() {}
