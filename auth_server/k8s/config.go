@@ -55,9 +55,13 @@ type AuthConfig struct {
 	Limits struct {
 		// QPS is the maximum queries per second for Kubernetes API client throttling.
 		// If zero, DefaultQPS: 5 is used.
+		// If negative, throttling is disabled.
+		// See: https://github.com/kubernetes/client-go/blob/v0.31.14/rest/config.go#L353-L363
 		QPS float32 `yaml:"qps,omitempty"`
 		// Burst is the maximum burst size for Kubernetes API client throttling.
 		// If zero, DefaultBurst: 10 is used.
+		// Only relevant when QPS > 0. If QPS < 0, throttling is disabled and Burst is ignored.
+		// See: https://github.com/kubernetes/client-go/blob/v0.31.14/rest/config.go#L353-L363
 		Burst int `yaml:"burst,omitempty"`
 		// RequestTimeout is the timeout duration for individual Kubernetes API requests
 		// (e.g., TokenReview, SelfSubjectRulesReview).

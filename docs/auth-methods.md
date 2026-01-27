@@ -52,7 +52,8 @@ kubernetes_auth:
   limits:
     request_timeout: "5s"  # Timeout for individual API requests
     # Optional client-go throttling for outgoing Kubernetes requests.
-    # If qps/burst are <= 0, client-go defaults are used (QPS=5, Burst=10).
+    # QPS: If zero, DefaultQPS: 5 is used. If negative, throttling is disabled.
+    # Burst: If zero, DefaultBurst: 10 is used. Only relevant when QPS > 0.
     qps: 10
     burst: 20
 
