@@ -215,63 +215,51 @@ oidc_auth:
 # Kubernetes authentication via Kubernetes TokenReview API.
 # The password from `docker login` is treated as a Bearer token and validated
 # using Kubernetes TokenReview. Results can be cached to reduce load on the API server.
+#
+# Note: When using Kubernetes auth, the docker login username must be "token"
+# (or the value specified in user_name) and the password must be a valid Kubernetes bearer token.
 kubernetes_auth:
-  # Optional path to kubeconfig. If empty, in-cluster config is used.
+  # Optional path to kubeconfig. If empty or not specified, in-cluster config is used
+  # (service account token and CA certificate mounted in the pod).
   # kubeconfig: "/path/to/kubeconfig"
+
+  # Optional username that must be used for Kubernetes token authentication.
+  # Defaults to "token" if not specified.
+  # user_name: "token"
 
   # Limits for outgoing TokenReview calls
   limits:
-    request_timeout: "5s"
-    # Optional client-go throttling for outgoing Kubernetes requests
+    request_timeout: "5s"  # Timeout for individual API requests
+    # Optional client-go throttling for outgoing Kubernetes requests.
     # If qps/burst are <= 0, client-go defaults are used (QPS=5, Burst=10).
     qps: 10
     burst: 20
 
   # Cache settings for authentication results
   cache:
-    # TTL for successful authentication results.
-    # If 0, caching is disabled.
-    success_ttl: "2m"
-    # TTL for failed authentication results.
-    # If 0, caching is disabled.
-    failure_ttl: "2m"
+    # TTL for successful authentication results (default: 5m, 0 disables caching)
+    success_ttl: "5m"
+    # TTL for failed authentication results (default: 30s, 0 disables caching)
+    failure_ttl: "30s"
 
-  # Map k8s user groups/extra to labels for ACL matching
-  labels:
-    include_groups: true
-    include_extra: false
-  # Note: when using Kubernetes auth, the docker login username must be "token"
-  # and the password must be a valid Kubernetes bearer token.
-
-# Kubernetes authorization (RBAC via SelfSubjectRulesReview).
-# Maps docker actions (pull/push/delete) to k8s verbs for a CR in api_group/resource.
-# Supports recursive globbing (e.g. "images/**") in RBAC resourceNames.
-kubernetes_authz:
-  # kubeconfig: "/path/to/kubeconfig" # optional; empty means in-cluster
-
-  # Limits for outgoing SelfSubjectRulesReview calls
-  limits:
-    request_timeout: "5s"
-    # Optional client-go throttling for outgoing Kubernetes requests
-    # If qps/burst are <= 0, client-go defaults are used (QPS=5, Burst=10).
-    qps: 10
-    burst: 20
-
-  # Cache settings for authorization results (SSRR)
-  cache:
-    # TTL for successful authorization results. If 0, caching is disabled.
-    success_ttl: "2m"
-    # TTL for failed authorization results. If 0, caching is disabled.
-    failure_ttl: "2m"
-
-  # Parameters for constructing the SelfSubjectRulesReview.
-  # Note: The Namespace for the review is derived from the first segment of the repository name (e.g. "ns/image" -> "ns").
-  review:
-    api_group: "registry.deckhouse.io"
-    resource: "payloadrepositorytags"
-    # Label key containing username from AuthN labels (default: k8s_username)
-    user_label: "k8s_username"
-    # Verbs are hardcoded in the application: pull->get, push->create, delete->delete
+  # Optional: Enable Kubernetes authorization (RBAC via SelfSubjectRulesReview).
+  # 
+  # To ENABLE authorization: Uncomment and configure the 'authz' section below.
+  # To DISABLE authorization: Omit or comment out the 'authz' section (use ACL rules instead).
+  #
+  # When enabled:
+  # - Maps docker actions (pull/push/delete) to k8s verbs for a CR in api_group/resource
+  # - Supports recursive globbing (e.g. "images/**") in RBAC resourceNames
+  # - Namespace is derived from the first segment of the repository name (e.g. "ns/image" -> "ns")
+  # - The remaining path is matched against RBAC resourceNames
+  # - Actions are mapped: pull->get, push->create, delete->delete
+  # - If ACL rules are also configured, both are evaluated (OR logic)
+  #
+  # authz:
+  #   # Required: Kubernetes API group for the custom resource
+  #   api_group: "registry.deckhouse.io"
+  #   # Required: Kubernetes resource name (plural form)
+  #   resource: "payloadrepositorytags"
 
 # Gitlab authentication.
 # ==! NB: DO NOT ENTER YOUR Gitlab PASSWORD AT "docker login". IT WILL NOT WORK.
