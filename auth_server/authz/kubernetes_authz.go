@@ -156,12 +156,7 @@ func (ka *kubernetesAuthz) getRules(userInfo *k8s.UserInfo, ns string) ([]author
 func (ka *kubernetesAuthz) getRulesFromK8s(userInfo *k8s.UserInfo, ns string) ([]authorizationv1.ResourceRule, error) {
 	backoff := webhook.DefaultRetryBackoffWithInitialDelay(k8s.DefaultBackoffInitialDelay)
 
-	timeout := ka.cfg.Limits.RequestTimeout
-	if timeout == 0 {
-		timeout = k8s.DefaultRequestTimeout
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), ka.cfg.Limits.RequestTimeout)
 	defer cancel()
 
 	impersonatedConfig := rest.CopyConfig(ka.restConfig)

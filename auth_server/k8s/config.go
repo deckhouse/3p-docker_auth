@@ -33,9 +33,10 @@ import (
 )
 
 const (
-	defaultSuccessTTL = 5 * time.Minute
-	defaultFailureTTL = 30 * time.Second
-	defaultUserName   = "token"
+	defaultSuccessTTL    = 5 * time.Minute
+	defaultFailureTTL    = 30 * time.Second
+	defaultUserName      = "token"
+	defaultRequestTimeout = 10 * time.Second
 )
 
 // AuthConfig defines configuration for Kubernetes TokenReview authentication.
@@ -67,7 +68,7 @@ type AuthConfig struct {
 		Burst int `yaml:"burst,omitempty"`
 		// RequestTimeout is the timeout duration for individual Kubernetes API requests
 		// (e.g., TokenReview, SelfSubjectRulesReview).
-		// If not specified, a default timeout is used.
+		// Defaults to 10 seconds if not specified, zero, or negative.
 		RequestTimeout time.Duration `yaml:"request_timeout,omitempty"`
 	} `yaml:"limits,omitempty"`
 
@@ -198,6 +199,7 @@ func (c *AuthzConfig) IsActionAllowed(rules []authorizationv1.ResourceRule, verb
 //   - Cache.SuccessTTL: 5 minutes
 //   - Cache.FailureTTL: 30 seconds
 //   - UserName: "token"
+//   - Limits.RequestTimeout: 10 seconds
 //
 // Also validates the nested Authz configuration if present.
 func (c *AuthConfig) Validate(configKey string) error {
@@ -211,6 +213,10 @@ func (c *AuthConfig) Validate(configKey string) error {
 
 	if c.UserName == "" {
 		c.UserName = defaultUserName
+	}
+
+	if c.Limits.RequestTimeout <= 0 {
+		c.Limits.RequestTimeout = defaultRequestTimeout
 	}
 
 	return validation.ValidateStruct(c,

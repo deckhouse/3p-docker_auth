@@ -27,9 +27,6 @@ const (
 	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go#L130
 	DefaultCacheSize = 8192
 
-	// DefaultRequestTimeout is the default timeout for Kubernetes API requests.
-	DefaultRequestTimeout = 10 * time.Second
-
 	// DefaultBackoffInitialDelay is the default initial delay for exponential backoff retries.
 	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/pkg/util/webhook/webhook.go#L42
 	DefaultBackoffInitialDelay = 500 * time.Millisecond
