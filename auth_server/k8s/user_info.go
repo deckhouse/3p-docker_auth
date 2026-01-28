@@ -29,6 +29,7 @@ import (
 // It mirrors the structure of k8s.io/apiserver/pkg/authentication/user.Info.
 type UserInfo struct {
 	Name   string
+	UID    string
 	Groups []string
 	Extra  map[string][]string
 }
@@ -36,6 +37,7 @@ type UserInfo struct {
 // ToLabels converts UserInfo to api.Labels format.
 // It uses the label constants defined in this package:
 // - UserLabel for the username
+// - UIDLabel for the UID
 // - GroupsLabel for groups
 // - ExtraLabelPrefix for extra fields
 func (u *UserInfo) ToLabels() api.Labels {
@@ -43,6 +45,10 @@ func (u *UserInfo) ToLabels() api.Labels {
 
 	if u.Name != "" {
 		labels[UserLabel] = []string{u.Name}
+	}
+
+	if u.UID != "" {
+		labels[UIDLabel] = []string{u.UID}
 	}
 
 	if len(u.Groups) > 0 {
@@ -62,10 +68,11 @@ func (u *UserInfo) ToLabels() api.Labels {
 }
 
 // UserInfoFromLabels creates a UserInfo from api.Labels.
-// It extracts the username, groups, and extra fields from the labels.
+// It extracts the username, UID, groups, and extra fields from the labels.
 func UserInfoFromLabels(labels api.Labels) *UserInfo {
 	u := &UserInfo{
 		Name:   "",
+		UID:    "",
 		Groups: nil,
 		Extra:  make(map[string][]string),
 	}
@@ -75,6 +82,10 @@ func UserInfoFromLabels(labels api.Labels) *UserInfo {
 		case k == UserLabel:
 			if len(vs) > 0 {
 				u.Name = vs[0]
+			}
+		case k == UIDLabel:
+			if len(vs) > 0 {
+				u.UID = vs[0]
 			}
 		case k == GroupsLabel:
 			if len(vs) > 0 {
@@ -92,18 +103,20 @@ func UserInfoFromLabels(labels api.Labels) *UserInfo {
 }
 
 // UserInfoFromUser creates a UserInfo from a user.Info interface.
-// It extracts the username, groups, and extra fields from the user.Info.
+// It extracts the username, UID, groups, and extra fields from the user.Info.
 func UserInfoFromUser(userInfo user.Info) *UserInfo {
 	u := &UserInfo{}
 
 	if userInfo == nil {
 		u.Name = ""
+		u.UID = ""
 		u.Groups = nil
 		u.Extra = make(map[string][]string)
 		return u
 	}
 
 	u.Name = userInfo.GetName()
+	u.UID = userInfo.GetUID()
 	u.Groups = userInfo.GetGroups()
 	u.Extra = userInfo.GetExtra()
 	if u.Extra == nil {
@@ -118,6 +131,7 @@ func UserInfoFromUser(userInfo user.Info) *UserInfo {
 func (u *UserInfo) ToImpersonationConfig() rest.ImpersonationConfig {
 	return rest.ImpersonationConfig{
 		UserName: u.Name,
+		UID:      u.UID,
 		Groups:   u.Groups,
 		Extra:    u.Extra,
 	}

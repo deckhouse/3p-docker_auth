@@ -20,6 +20,7 @@ import "time"
 
 const (
 	UserLabel        = "k8s-username"
+	UIDLabel         = "k8s-uid"
 	GroupsLabel      = "k8s-groups"
 	ExtraLabelPrefix = "k8s-extra-"
 

@@ -70,6 +70,7 @@ kubernetes_auth:
 When a user authenticates via Kubernetes, the following labels are automatically created from the TokenReview response:
 
 - `k8s-username`: The Kubernetes username
+- `k8s-uid`: The Kubernetes user UID
 - `k8s-groups`: List of Kubernetes groups the user belongs to
 - `k8s-extra-*`: Any extra fields from the TokenReview response (prefixed with `k8s-extra-`)
 - `groups`: Standard groups label (same as `k8s-groups`) for compatibility with ACL matching
@@ -334,6 +335,9 @@ acl:
   - match: { labels: { "k8s-username": "admin" } }
     actions: ["*"]
     comment: "Admin user has full access"
+  - match: { labels: { "k8s-uid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890" } }
+    actions: ["*"]
+    comment: "User with specific UID has full access"
 ```
 
 #### Example 2: Authentication + Kubernetes RBAC Authorization (Authorization Enabled)
