@@ -86,6 +86,10 @@ func NewKubernetesAuthz(config *k8s.AuthConfig) (api.Authorizer, error) {
 }
 
 func (ka *kubernetesAuthz) Authorize(req *api.AuthRequestInfo) ([]string, error) {
+	if len(req.Actions) == 0 {
+		return nil, api.NoMatch
+	}
+
 	if req.Account != ka.cfg.UserName {
 		return nil, api.NoMatch
 	}
@@ -106,12 +110,9 @@ func (ka *kubernetesAuthz) Authorize(req *api.AuthRequestInfo) ([]string, error)
 		return nil, err
 	}
 
-	if len(req.Actions) == 0 {
-		return []string{}, nil
-	}
+	glog.V(3).Infof("SSRR rules: %+v", rules)
 
 	allowed := []string{}
-
 	for _, action := range req.Actions {
 		verb, ok := k8s.GetK8sVerb(action)
 		if !ok {
@@ -122,6 +123,10 @@ func (ka *kubernetesAuthz) Authorize(req *api.AuthRequestInfo) ([]string, error)
 		if ka.cfg.Authz.IsActionAllowed(rules, verb, repoPath) {
 			allowed = append(allowed, action)
 		}
+	}
+
+	if len(allowed) == 0 {
+		return nil, api.NoMatch
 	}
 
 	return allowed, nil
