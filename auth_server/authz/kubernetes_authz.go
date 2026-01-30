@@ -110,8 +110,6 @@ func (ka *kubernetesAuthz) Authorize(req *api.AuthRequestInfo) ([]string, error)
 		return nil, err
 	}
 
-	glog.V(3).Infof("SSRR rules: %+v", rules)
-
 	allowed := []string{}
 	for _, action := range req.Actions {
 		verb, ok := k8s.GetK8sVerb(action)
@@ -139,13 +137,18 @@ func (ka *kubernetesAuthz) getRules(userInfo *k8s.UserInfo, ns string) ([]author
 	}
 
 	if val, ok := ka.cache.Get(key); ok {
-		return val.([]authorizationv1.ResourceRule), nil
+		switch v := val.(type) {
+		case []authorizationv1.ResourceRule:
+			return v, nil
+		case error:
+			return nil, v
+		}
 	}
 
 	rules, err := ka.getRulesFromK8s(userInfo, ns)
 	if err != nil {
 		if ka.cfg.Cache.FailureTTL > 0 {
-			ka.cache.Add(key, []authorizationv1.ResourceRule(nil), ka.cfg.Cache.FailureTTL)
+			ka.cache.Add(key, err, ka.cfg.Cache.FailureTTL)
 		}
 		return nil, err
 	}
