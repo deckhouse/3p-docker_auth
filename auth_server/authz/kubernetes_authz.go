@@ -90,7 +90,7 @@ func (ka *kubernetesAuthz) Authorize(req *api.AuthRequestInfo) ([]string, error)
 		return nil, api.NoMatch
 	}
 
-	if req.Account != ka.cfg.Username {
+	if req.Account != ka.cfg.UserName {
 		return nil, api.NoMatch
 	}
 
