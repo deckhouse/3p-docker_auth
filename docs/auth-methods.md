@@ -32,7 +32,7 @@ acl:
 
 Authenticate Docker users using Kubernetes bearer tokens. The password provided to `docker login` is treated as a Bearer token and validated via the Kubernetes TokenReview API. This requires the service account used by docker-auth to have permission to create TokenReviews.
 
-**Important:** When using Kubernetes auth, the docker login username must be `"token"` (or the value specified in `user_name`) and the password must be a valid Kubernetes bearer token.
+**Important:** When using Kubernetes auth, the docker login username must be `"token"` (or the value specified in `username`) and the password must be a valid Kubernetes bearer token.
 
 ### Authentication Configuration
 
@@ -46,7 +46,7 @@ kubernetes_auth:
 
   # Optional username that must be used for Kubernetes token authentication.
   # Defaults to "token" if not specified.
-  # user_name: "token"
+  # username: "token"
 
   # Limits for outgoing TokenReview calls
   limits:

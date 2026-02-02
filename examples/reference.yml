@@ -217,7 +217,7 @@ oidc_auth:
 # using Kubernetes TokenReview. Results can be cached to reduce load on the API server.
 #
 # Note: When using Kubernetes auth, the docker login username must be "token"
-# (or the value specified in user_name) and the password must be a valid Kubernetes bearer token.
+# (or the value specified in username) and the password must be a valid Kubernetes bearer token.
 kubernetes_auth:
   # Optional path to kubeconfig. If empty or not specified, in-cluster config is used
   # (service account token and CA certificate mounted in the pod).
@@ -225,7 +225,7 @@ kubernetes_auth:
 
   # Optional username that must be used for Kubernetes token authentication.
   # Defaults to "token" if not specified.
-  # user_name: "token"
+  # username: "token"
 
   # Limits for outgoing TokenReview calls
   limits:

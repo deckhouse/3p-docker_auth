@@ -52,7 +52,7 @@ type AuthConfig struct {
 	// Defaults to "token" if not specified.
 	// When using Kubernetes auth, the docker login username must match this value,
 	// and the password must be a valid Kubernetes bearer token.
-	UserName string `yaml:"user_name,omitempty"`
+	UserName string `yaml:"username,omitempty"`
 
 	// Limits defines rate limiting and timeout settings for outgoing Kubernetes API requests.
 	Limits struct {

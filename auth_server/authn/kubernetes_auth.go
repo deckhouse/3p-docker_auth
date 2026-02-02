@@ -113,7 +113,7 @@ func NewKubernetesAuth(config *k8s.AuthConfig) (*KubernetesAuth, error) {
 }
 
 func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString) (bool, api.Labels, error) {
-	if user != ka.cfg.UserName || password == "" {
+	if user != ka.cfg.Username || password == "" {
 		return false, nil, api.NoMatch
 	}
 
