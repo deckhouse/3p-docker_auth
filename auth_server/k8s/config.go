@@ -33,9 +33,9 @@ import (
 )
 
 const (
-	defaultSuccessTTL    = 5 * time.Minute
-	defaultFailureTTL    = 30 * time.Second
-	defaultUserName      = "token"
+	defaultSuccessTTL     = 5 * time.Minute
+	defaultFailureTTL     = 30 * time.Second
+	defaultUserName       = "token"
 	defaultRequestTimeout = 10 * time.Second
 )
 
@@ -184,6 +184,8 @@ func (c *AuthzConfig) IsActionAllowed(rules []authorizationv1.ResourceRule, verb
 	if resourcePath == "" {
 		return false
 	}
+
+	resourcePath = strings.ToLower(resourcePath)
 
 	for _, rule := range rules {
 		if c.matchRule(rule, verb, strings.ToLower(resourcePath)) {
