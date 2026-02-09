@@ -207,7 +207,7 @@ func (c *AuthzConfig) IsActionAllowed(rules []authorizationv1.ResourceRule, verb
 	resourcePath = strings.ToLower(resourcePath)
 
 	for _, rule := range rules {
-		if c.matchRule(rule, verb, strings.ToLower(resourcePath)) {
+		if c.matchRule(rule, verb, resourcePath) {
 			return true
 		}
 	}
