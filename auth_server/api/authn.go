@@ -40,7 +40,29 @@ type Authenticator interface {
 }
 
 var NoMatch = errors.New("did not match any rule")
-var WrongPass = errors.New("wrong password for user")
+
+// AuthFailed indicates authentication failed. It wraps an underlying error whose
+// message is included in Error() and shown in HTTP responses.
+type AuthFailed struct {
+	Err error
+}
+
+func (e *AuthFailed) Error() string {
+	if e.Err != nil {
+		return "Auth failed: " + e.Err.Error()
+	}
+	return "Auth failed"
+}
+
+func (e *AuthFailed) Unwrap() error { return e.Err }
+
+// NewAuthFailed returns an AuthFailed wrapping cause.
+func NewAuthFailed(cause error) error {
+	return &AuthFailed{Err: cause}
+}
+
+// WrongPass is an AuthFailed for wrong password. Use this or NewAuthFailed for auth failures.
+var WrongPass = NewAuthFailed(errors.New("wrong password for user"))
 
 type PasswordString string
 

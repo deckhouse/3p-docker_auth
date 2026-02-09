@@ -19,6 +19,7 @@ package server
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -336,13 +337,10 @@ func (as *AuthServer) Authenticate(ar *authRequest) (bool, api.Labels, error) {
 		result, labels, err := a.Authenticate(ar.Account, ar.Password)
 		glog.V(2).Infof("Authn %s %s -> %t, %+v, %v", a.Name(), ar.Account, result, labels, err)
 		if err != nil {
-			if err == api.NoMatch {
+			if errors.Is(err, api.NoMatch) {
 				continue
-			} else if err == api.WrongPass {
-				glog.Warningf("Failed authentication with %s: %s", err, ar.Account)
-				return false, nil, nil
 			}
-			err = fmt.Errorf("authn #%d returned error: %s", i+1, err)
+			err = fmt.Errorf("authn #%d returned error: %w", i+1, err)
 			glog.Errorf("%s: %s", ar, err)
 			return false, nil, err
 		}
@@ -358,10 +356,10 @@ func (as *AuthServer) authorizeScope(ai *api.AuthRequestInfo) ([]string, error) 
 		result, err := a.Authorize(ai)
 		glog.V(2).Infof("Authz %s %s -> %s, %s", a.Name(), *ai, result, err)
 		if err != nil {
-			if err == api.NoMatch {
+			if errors.Is(err, api.NoMatch) {
 				continue
 			}
-			err = fmt.Errorf("authz #%d returned error: %s", i+1, err)
+			err = fmt.Errorf("authz #%d returned error: %w", i+1, err)
 			glog.Errorf("%s: %s", *ai, err)
 			return nil, err
 		}
@@ -512,6 +510,13 @@ func (as *AuthServer) doAuth(rw http.ResponseWriter, req *http.Request) {
 	{
 		authnResult, labels, err := as.Authenticate(ar)
 		if err != nil {
+			var authFailed *api.AuthFailed
+			if errors.As(err, &authFailed) {
+				glog.Warningf("Auth failed: %s, error: %s", *ar, authFailed.Error())
+				rw.Header()["WWW-Authenticate"] = []string{fmt.Sprintf(`Basic realm="%s"`, as.config.Token.Issuer)}
+				http.Error(rw, authFailed.Error(), http.StatusUnauthorized)
+				return
+			}
 			http.Error(rw, fmt.Sprintf("Authentication failed (%s)", err), http.StatusInternalServerError)
 			return
 		}

@@ -123,7 +123,7 @@ func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString)
 	authResp, ok, err := ka.tokenAuthenticator.AuthenticateToken(ctx, string(password))
 	if err != nil {
 		if errors.Is(err, k8s.ErrTokenNotAuthenticated) {
-			return false, nil, api.WrongPass
+			return false, nil, api.NewAuthFailed(err)
 		}
 
 		glog.Errorf("k8s token authenticator error: %v", err)
