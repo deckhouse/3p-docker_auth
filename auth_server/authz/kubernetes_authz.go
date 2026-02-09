@@ -123,6 +123,7 @@ func (ka *kubernetesAuthz) Authorize(req *api.AuthRequestInfo) ([]string, error)
 		}
 
 		if !exists {
+			glog.Warningf("Access denied: namespace %q does not exist (user=%s, repository=%s)", ns, userInfo.Name, req.Name)
 			return nil, api.NoMatch
 		}
 	}
