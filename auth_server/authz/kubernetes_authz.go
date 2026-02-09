@@ -133,6 +133,7 @@ func (ka *kubernetesAuthz) Authorize(req *api.AuthRequestInfo) ([]string, error)
 		glog.Errorf("Failed to get rules (SSRR): %v", err)
 		return nil, err
 	}
+	glog.V(2).Infof("Rules (SSRR) for user=%s ns=%s: %+v", userInfo.Name, ns, rules)
 
 	allowed := []string{}
 	for _, action := range req.Actions {
