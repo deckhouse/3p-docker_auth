@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"time"
 
+	"golang.org/x/sync/singleflight"
 	authorizationv1 "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/cache"
@@ -34,8 +35,8 @@ import (
 // RulesFetcherMetrics holds Prometheus metrics for the rules fetcher.
 // When provided to NewRulesFetcher, all fields must be set or none (pass nil to disable metrics).
 type RulesFetcherMetrics struct {
-	RequestsTotal   *prometheus.CounterVec
-	RequestLatency  *prometheus.HistogramVec
+	RequestsTotal  *prometheus.CounterVec
+	RequestLatency *prometheus.HistogramVec
 }
 
 // RulesFetcher fetches resource rules.
@@ -67,7 +68,11 @@ func NewRulesFetcher(requestTimeout time.Duration, restConfig *rest.Config, metr
 		}
 	}
 
-	return &rulesFetcher{requestTimeout: requestTimeout, restConfig: restConfig, metrics: metrics}, nil
+	return &rulesFetcher{
+		requestTimeout: requestTimeout,
+		restConfig:     restConfig,
+		metrics:        metrics,
+	}, nil
 }
 
 // buildClient returns a Kubernetes client configured to impersonate the given user.
@@ -79,6 +84,7 @@ func (k *rulesFetcher) buildClient(userInfo *UserInfo) (kubernetes.Interface, er
 	if err != nil {
 		return nil, err
 	}
+
 	return client, nil
 }
 
@@ -146,6 +152,7 @@ func (k *rulesFetcher) GetRules(userInfo *UserInfo, ns string) ([]authorizationv
 type cachedRulesFetcher struct {
 	inner      RulesFetcher
 	cache      *cache.LRUExpireCache
+	inflight   singleflight.Group
 	successTTL time.Duration
 	failureTTL time.Duration
 }
@@ -161,6 +168,7 @@ func NewCachedRulesFetcher(inner RulesFetcher, successTTL, failureTTL time.Durat
 }
 
 // GetRules returns cached rules or delegates to the inner fetcher and caches the result.
+// At most one in-flight inner.GetRules request runs per cache key; concurrent callers for the same key share the result.
 func (c *cachedRulesFetcher) GetRules(userInfo *UserInfo, ns string) ([]authorizationv1.ResourceRule, error) {
 	key, err := ComputeHash(userInfo, ns)
 	if err != nil {
@@ -176,17 +184,26 @@ func (c *cachedRulesFetcher) GetRules(userInfo *UserInfo, ns string) ([]authoriz
 		}
 	}
 
-	rules, err := c.inner.GetRules(userInfo, ns)
-	if err != nil {
-		if c.failureTTL > 0 {
-			c.cache.Add(key, err, c.failureTTL)
+	v, err, _ := c.inflight.Do(key, func() (any, error) {
+		rules, err := c.inner.GetRules(userInfo, ns)
+		if err != nil {
+			if c.failureTTL > 0 {
+				c.cache.Add(key, err, c.failureTTL)
+			}
+
+			return nil, err
 		}
+
+		if c.successTTL > 0 {
+			c.cache.Add(key, rules, c.successTTL)
+		}
+
+		return rules, nil
+	})
+
+	if err != nil {
 		return nil, err
 	}
 
-	if c.successTTL > 0 {
-		c.cache.Add(key, rules, c.successTTL)
-	}
-
-	return rules, nil
+	return v.([]authorizationv1.ResourceRule), nil
 }
