@@ -17,29 +17,14 @@
 package authz
 
 import (
-	"context"
 	"fmt"
-	"time"
 
 	"github.com/cesanta/glog"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/cesanta/docker_auth/auth_server/api"
 	"github.com/cesanta/docker_auth/auth_server/k8s"
-
-	authorizationv1 "k8s.io/api/authorization/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/cache"
-	"k8s.io/apiserver/pkg/util/webhook"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 )
-
-type kubernetesAuthz struct {
-	cfg        *k8s.AuthConfig
-	restConfig *rest.Config
-	cache      *cache.LRUExpireCache
-}
 
 var (
 	k8sAuthzRequestsTotal = prometheus.NewCounterVec(
@@ -64,6 +49,11 @@ func init() {
 	prometheus.MustRegister(k8sAuthzRequestLatencySeconds)
 }
 
+type kubernetesAuthz struct {
+	cfg          *k8s.AuthConfig
+	rulesFetcher k8s.RulesFetcher
+}
+
 // NewKubernetesAuthz creates a new Kubernetes RBAC authorizer using SelfSubjectRulesReview.
 func NewKubernetesAuthz(config *k8s.AuthConfig) (api.Authorizer, error) {
 	if config == nil {
@@ -75,14 +65,23 @@ func NewKubernetesAuthz(config *k8s.AuthConfig) (api.Authorizer, error) {
 		return nil, fmt.Errorf("failed to build Kubernetes REST config: %w", err)
 	}
 
-	authzCache := cache.NewLRUExpireCache(k8s.DefaultCacheSize)
+	fetcherMetrics := &k8s.RulesFetcherMetrics{
+		RequestsTotal:  k8sAuthzRequestsTotal,
+		RequestLatency: k8sAuthzRequestLatencySeconds,
+	}
+
+	fetcher, err := k8s.NewRulesFetcher(config.Limits.RequestTimeout, rc, fetcherMetrics)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rules fetcher: %w", err)
+	}
+	cachedFetcher := k8s.NewCachedRulesFetcher(fetcher, config.Cache.SuccessTTL, config.Cache.FailureTTL)
 
 	glog.V(1).Infof(
 		"Kubernetes authz configured (group=%s, resource=%s, cache_ttl=%s/%s)",
 		config.Authz.APIGroup, config.Authz.Resource, config.Cache.SuccessTTL, config.Cache.FailureTTL,
 	)
 
-	return &kubernetesAuthz{cfg: config, restConfig: rc, cache: authzCache}, nil
+	return &kubernetesAuthz{cfg: config, rulesFetcher: cachedFetcher}, nil
 }
 
 func (ka *kubernetesAuthz) Authorize(req *api.AuthRequestInfo) ([]string, error) {
@@ -104,7 +103,7 @@ func (ka *kubernetesAuthz) Authorize(req *api.AuthRequestInfo) ([]string, error)
 		return nil, api.NoMatch
 	}
 
-	rules, err := ka.getRules(userInfo, ns)
+	rules, err := ka.rulesFetcher.GetRules(userInfo, ns)
 	if err != nil {
 		glog.Errorf("Failed to get rules (SSRR): %v", err)
 		return nil, err
@@ -128,92 +127,6 @@ func (ka *kubernetesAuthz) Authorize(req *api.AuthRequestInfo) ([]string, error)
 	}
 
 	return allowed, nil
-}
-
-func (ka *kubernetesAuthz) getRules(userInfo *k8s.UserInfo, ns string) ([]authorizationv1.ResourceRule, error) {
-	key, err := k8s.ComputeHash(userInfo, ns)
-	if err != nil {
-		return nil, fmt.Errorf("failed to compute cache key: %w", err)
-	}
-
-	if val, ok := ka.cache.Get(key); ok {
-		switch v := val.(type) {
-		case []authorizationv1.ResourceRule:
-			return v, nil
-		case error:
-			return nil, v
-		}
-	}
-
-	rules, err := ka.getRulesFromK8s(userInfo, ns)
-	if err != nil {
-		if ka.cfg.Cache.FailureTTL > 0 {
-			ka.cache.Add(key, err, ka.cfg.Cache.FailureTTL)
-		}
-		return nil, err
-	}
-
-	if ka.cfg.Cache.SuccessTTL > 0 {
-		ka.cache.Add(key, rules, ka.cfg.Cache.SuccessTTL)
-	}
-
-	return rules, nil
-}
-
-// getRulesFromK8s fetches resource rules from Kubernetes using SelfSubjectRulesReview with retry logic and metrics.
-func (ka *kubernetesAuthz) getRulesFromK8s(userInfo *k8s.UserInfo, ns string) ([]authorizationv1.ResourceRule, error) {
-	backoff := webhook.DefaultRetryBackoffWithInitialDelay(k8s.DefaultBackoffInitialDelay)
-
-	ctx, cancel := context.WithTimeout(context.Background(), ka.cfg.Limits.RequestTimeout)
-	defer cancel()
-
-	impersonatedConfig := rest.CopyConfig(ka.restConfig)
-	impersonatedConfig.Impersonate = userInfo.ToImpersonationConfig()
-
-	client, err := kubernetes.NewForConfig(impersonatedConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create impersonated client: %w", err)
-	}
-
-	ssrr := &authorizationv1.SelfSubjectRulesReview{
-		Spec: authorizationv1.SelfSubjectRulesReviewSpec{Namespace: ns},
-	}
-
-	var rules []authorizationv1.ResourceRule
-
-	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go#L235
-	err = webhook.WithExponentialBackoff(ctx, backoff, func() error {
-		start := time.Now()
-
-		res, ssrrErr := client.
-			AuthorizationV1().
-			SelfSubjectRulesReviews().
-			Create(ctx, ssrr, metav1.CreateOptions{})
-
-		duration := time.Since(start).Seconds()
-
-		code := "ok"
-		if ssrrErr != nil {
-			code = "error"
-		}
-
-		k8sAuthzRequestsTotal.WithLabelValues(code).Inc()
-		k8sAuthzRequestLatencySeconds.WithLabelValues(code).Observe(duration)
-
-		if ssrrErr != nil {
-			return ssrrErr
-		}
-
-		rules = res.Status.ResourceRules
-
-		return nil
-	}, webhook.DefaultShouldRetry)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return rules, nil
 }
 
 func (ka *kubernetesAuthz) Stop() {}
