@@ -27,17 +27,17 @@ import (
 )
 
 var (
-	k8sAuthzRequestsTotal = prometheus.NewCounterVec(
+	k8sAuthzRulesRequestsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "registry_auth_k8s_authz_requests_total",
+			Name: "registry_auth_k8s_authz_rules_requests_total",
 			Help: "Total number of Kubernetes SelfSubjectRulesReview calls.",
 		},
 		[]string{"code"},
 	)
-	k8sAuthzRequestLatencySeconds = prometheus.NewHistogramVec(
+	k8sAuthzRulesRequestDurationSeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "registry_auth_k8s_authz_request_latency_seconds",
-			Help:    "Latency of Kubernetes SelfSubjectRulesReview calls in seconds.",
+			Name:    "registry_auth_k8s_authz_rules_request_duration_seconds",
+			Help:    "Duration of Kubernetes SelfSubjectRulesReview calls in seconds.",
 			Buckets: prometheus.DefBuckets,
 		},
 		[]string{"code"},
@@ -45,8 +45,8 @@ var (
 )
 
 func init() {
-	prometheus.MustRegister(k8sAuthzRequestsTotal)
-	prometheus.MustRegister(k8sAuthzRequestLatencySeconds)
+	prometheus.MustRegister(k8sAuthzRulesRequestsTotal)
+	prometheus.MustRegister(k8sAuthzRulesRequestDurationSeconds)
 }
 
 type kubernetesAuthz struct {
@@ -66,8 +66,8 @@ func NewKubernetesAuthz(config *k8s.AuthConfig) (api.Authorizer, error) {
 	}
 
 	fetcherMetrics := &k8s.RulesFetcherMetrics{
-		RequestsTotal:  k8sAuthzRequestsTotal,
-		RequestLatency: k8sAuthzRequestLatencySeconds,
+		RequestsTotal:  k8sAuthzRulesRequestsTotal,
+		RequestLatency: k8sAuthzRulesRequestDurationSeconds,
 	}
 
 	fetcher, err := k8s.NewRulesFetcher(config.Limits.RequestTimeout, rc, fetcherMetrics)
