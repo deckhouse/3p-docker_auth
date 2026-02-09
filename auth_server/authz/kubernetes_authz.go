@@ -17,6 +17,7 @@
 package authz
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/cesanta/glog"
@@ -50,8 +51,9 @@ func init() {
 }
 
 type kubernetesAuthz struct {
-	cfg          *k8s.AuthConfig
-	rulesFetcher k8s.RulesFetcher
+	cfg              *k8s.AuthConfig
+	namespaceChecker k8s.NamespaceChecker
+	rulesFetcher     k8s.RulesFetcher
 }
 
 // NewKubernetesAuthz creates a new Kubernetes RBAC authorizer using SelfSubjectRulesReview.
@@ -76,12 +78,22 @@ func NewKubernetesAuthz(config *k8s.AuthConfig) (api.Authorizer, error) {
 	}
 	cachedFetcher := k8s.NewCachedRulesFetcher(fetcher, config.Cache.SuccessTTL, config.Cache.FailureTTL)
 
+	namespaceChecker, err := k8s.NewNamespaceChecker(config.Limits.RequestTimeout, rc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create namespace checker: %w", err)
+	}
+	cachedNamespaceChecker := k8s.NewCachedNamespaceChecker(namespaceChecker, config.Cache.SuccessTTL, config.Cache.FailureTTL)
+
 	glog.V(1).Infof(
 		"Kubernetes authz configured (group=%s, resource=%s, cache_ttl=%s/%s)",
 		config.Authz.APIGroup, config.Authz.Resource, config.Cache.SuccessTTL, config.Cache.FailureTTL,
 	)
 
-	return &kubernetesAuthz{cfg: config, rulesFetcher: cachedFetcher}, nil
+	return &kubernetesAuthz{
+		cfg:              config,
+		namespaceChecker: cachedNamespaceChecker,
+		rulesFetcher:     cachedFetcher,
+	}, nil
 }
 
 func (ka *kubernetesAuthz) Authorize(req *api.AuthRequestInfo) ([]string, error) {
@@ -101,6 +113,18 @@ func (ka *kubernetesAuthz) Authorize(req *api.AuthRequestInfo) ([]string, error)
 	ns, repoPath := k8s.SplitNamespaceAndPath(req.Name)
 	if repoPath == "" {
 		return nil, api.NoMatch
+	}
+
+	if ka.cfg.Authz.NeedsNamespaceCheck(req.Actions) {
+		exists, err := ka.namespaceChecker.Exists(context.Background(), ns)
+		if err != nil {
+			glog.Errorf("Failed to check namespace %q: %v", ns, err)
+			return nil, err
+		}
+
+		if !exists {
+			return nil, api.NoMatch
+		}
 	}
 
 	rules, err := ka.rulesFetcher.GetRules(userInfo, ns)

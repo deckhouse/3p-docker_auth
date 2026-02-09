@@ -255,12 +255,16 @@ kubernetes_auth:
   # - The remaining path is matched against RBAC resourceNames
   # - Actions are mapped: pull->get, push->create, delete->delete
   # - If ACL rules are also configured, both are evaluated (OR logic)
+  # - Optional namespace_check_verbs: when set, namespace existence is checked only for those actions
   #
   # authz:
   #   # Required: Kubernetes API group for the custom resource
   #   api_group: "registry.example.com"
   #   # Required: Kubernetes resource name (plural form)
   #   resource: "registries"
+  #   # Optional: Docker actions for which namespace existence is checked (e.g. push, delete).
+  #   # If empty or omitted, namespace existence is not checked.
+  #   namespace_check_verbs: ["push", "delete"]
 
 # Gitlab authentication.
 # ==! NB: DO NOT ENTER YOUR Gitlab PASSWORD AT "docker login". IT WILL NOT WORK.

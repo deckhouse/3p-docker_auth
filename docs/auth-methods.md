@@ -112,6 +112,11 @@ kubernetes_auth:
     api_group: "registry.example.com"
     # Required: Kubernetes resource name (plural form)
     resource: "registries"
+    # Optional: Docker actions for which namespace existence is checked before RBAC.
+    # If set, the namespace (first segment of the repo name) must exist in the cluster
+    # when the request includes at least one of these actions (e.g. push, delete).
+    # If empty or omitted, namespace existence is not checked.
+    # namespace_check_verbs: ["push", "delete"]
 ```
 
 **When authorization is enabled:**
@@ -133,12 +138,14 @@ kubernetes_auth:
    - Repository: `my-namespace/my-app` → Namespace: `my-namespace`, Path: `my-app`
    - Repository: `prod/backend/api` → Namespace: `prod`, Path: `backend/api`
 
-2. **Action to verb mapping**: Docker actions are mapped to Kubernetes verbs:
+2. **Namespace existence check** (optional): If `namespace_check_verbs` is set, the server checks that the namespace (first segment of the repository name) exists in the cluster before running RBAC. The check runs only when the request includes at least one of the listed Docker actions (e.g. `push`, `delete`). If the namespace does not exist, access is denied. This avoids unnecessary SelfSubjectRulesReview calls for invalid namespaces.
+
+3. **Action to verb mapping**: Docker actions are mapped to Kubernetes verbs:
    - `pull` → `get`
    - `push` → `create`
    - `delete` → `delete`
 
-3. **RBAC rule matching**: The authorization checks if the authenticated user has the required verb permission for the specified API group and resource. The resource path (after the namespace) is matched against RBAC `resourceNames` using recursive globbing (e.g., `images/**`).
+4. **RBAC rule matching**: The authorization checks if the authenticated user has the required verb permission for the specified API group and resource. The resource path (after the namespace) is matched against RBAC `resourceNames` using recursive globbing (e.g., `images/**`).
 
 **Example RBAC rules:**
 
@@ -172,6 +179,7 @@ rules:
 **Important Notes:**
 
 - The authorization uses the same `limits` and `cache` settings from the parent `kubernetes_auth` configuration.
+- Optional `namespace_check_verbs` limits namespace existence checks to certain Docker actions (e.g. only for `push` and `delete`); if omitted, namespace existence is not checked.
 - When `authz` is enabled, Kubernetes RBAC authorization is checked. If ACL rules are also configured, **both** are evaluated - access is granted if either ACL or Kubernetes authz allows it (OR logic).
 - To use only Kubernetes RBAC authorization, enable `authz` and omit or leave ACL empty.
 - To use only ACL-based authorization, omit the `authz` section and configure ACL rules.
@@ -357,19 +365,8 @@ kubernetes_auth:
   authz:
     api_group: "registry.example.com"
     resource: "registries"
-
-```yaml
-kubernetes_auth:
-  limits:
-    request_timeout: "5s"
-    qps: 10
-    burst: 20
-  cache:
-    success_ttl: "5m"
-    failure_ttl: "30s"
-  authz:
-    api_group: "registry.example.com"
-    resource: "registries"
+    # Optional: check namespace exists only for push/delete (not for pull)
+    # namespace_check_verbs: ["push", "delete"]
 ```
 
 With corresponding Kubernetes RBAC rules:

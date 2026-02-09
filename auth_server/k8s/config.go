@@ -110,6 +110,25 @@ type AuthzConfig struct {
 	// Examples: "registries", "deployments", "pods".
 	// Required field.
 	Resource string `yaml:"resource,omitempty"`
+	// NamespaceCheckVerbs are Docker actions (e.g. "push", "delete") for which namespace existence is checked before authorization.
+	// If empty or nil, namespace existence is not checked. When non-empty, the check runs only when the request includes at least one of these actions.
+	NamespaceCheckVerbs []string `yaml:"namespace_check_verbs,omitempty"`
+}
+
+// NeedsNamespaceCheck returns true when namespace existence should be checked for the given Docker actions.
+// This is the case when NamespaceCheckVerbs is non-empty and at least one of actions is in that list.
+func (c *AuthzConfig) NeedsNamespaceCheck(actions []string) bool {
+	if len(c.NamespaceCheckVerbs) == 0 {
+		return false
+	}
+
+	for _, a := range actions {
+		if slices.Contains(c.NamespaceCheckVerbs, a) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Validate validates the AuthzConfig fields to ensure required values are set.
