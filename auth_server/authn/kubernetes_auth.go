@@ -18,6 +18,7 @@ package authn
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/cesanta/glog"
@@ -78,8 +79,7 @@ func NewKubernetesAuth(config *k8s.AuthConfig) (*KubernetesAuth, error) {
 		return nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
 
-	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/plugin/pkg/authenticator/token/webhook/webhook.go
-	tokenAuth, err := webhookauthn.NewFromInterface(
+	tokenAuth, err := k8s.NewTokenReviewer(
 		cs.AuthenticationV1(),
 		[]string{},
 		*webhookauthn.DefaultRetryBackoff(),
@@ -122,12 +122,16 @@ func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString)
 
 	authResp, ok, err := ka.tokenAuthenticator.AuthenticateToken(ctx, string(password))
 	if err != nil {
+		if errors.Is(err, k8s.ErrTokenNotAuthenticated) {
+			return false, nil, api.WrongPass
+		}
+
 		glog.Errorf("k8s token authenticator error: %v", err)
 		return false, nil, err
 	}
 
 	if !ok || authResp == nil || authResp.User == nil {
-		return false, nil, nil
+		return false, nil, api.WrongPass
 	}
 
 	userInfo := k8s.UserInfoFromUser(authResp.User)
