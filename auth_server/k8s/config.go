@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	defaultSuccessTTL     = 5 * time.Minute
+	defaultSuccessTTL     = 1 * time.Minute
 	defaultFailureTTL     = 30 * time.Second
 	defaultUserName       = "token"
 	defaultRequestTimeout = 10 * time.Second
@@ -76,7 +76,7 @@ type AuthConfig struct {
 	// If TTL is 0 or negative, caching will be disabled for that result type.
 	Cache struct {
 		// SuccessTTL is the duration to cache successful authentication/authorization results.
-		// Defaults to 5 minutes if not specified.
+		// Defaults to 1 minute if not specified.
 		// Setting to 0 disables caching for successful results.
 		SuccessTTL time.Duration `yaml:"success_ttl,omitempty"`
 		// FailureTTL is the duration to cache failed authentication/authorization results.
@@ -217,7 +217,7 @@ func (c *AuthzConfig) IsActionAllowed(rules []authorizationv1.ResourceRule, verb
 
 // Validate validates the AuthConfig and sets default values for optional fields.
 // Default values are set if not specified:
-//   - Cache.SuccessTTL: 5 minutes
+//   - Cache.SuccessTTL: 1 minute
 //   - Cache.FailureTTL: 30 seconds
 //   - UserName: "token"
 //   - Limits.RequestTimeout: 10 seconds

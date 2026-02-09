@@ -60,7 +60,7 @@ kubernetes_auth:
   # Cache settings for authentication results
   cache:
     # TTL for successful authentication results (default: 5m, 0 disables caching)
-    success_ttl: "5m"
+    success_ttl: "1m"
     # TTL for failed authentication results (default: 30s, 0 disables caching)
     failure_ttl: "30s"
 ```
@@ -333,7 +333,7 @@ kubernetes_auth:
     qps: 10
     burst: 20
   cache:
-    success_ttl: "5m"
+    success_ttl: "1m"
     failure_ttl: "30s"
   # Note: No 'authz' section - Kubernetes RBAC authorization is NOT enabled
 
@@ -363,7 +363,7 @@ kubernetes_auth:
     qps: 10
     burst: 20
   cache:
-    success_ttl: "5m"
+    success_ttl: "1m"
     failure_ttl: "30s"
   # Authorization is ENABLED - Kubernetes RBAC will be checked
   authz:
