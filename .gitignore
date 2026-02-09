@@ -1,2 +1,16 @@
+# Editor swap files (vim, etc.)
 *.swp
+
+# Helm chart lockfile
 chart/docker-auth/Chart.lock
+
+# Build / CI artifacts
+/artifacts/
+
+# macOS system and metadata files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
