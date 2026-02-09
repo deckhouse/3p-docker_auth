@@ -87,6 +87,10 @@ acl:
     comment: "Admins have full access"
 ```
 
+### Authentication failures
+
+When the token is invalid or not authenticated (e.g. expired, revoked, or rejected by the API server), the server responds with **HTTP 401 Unauthorized**. The response body includes a short message such as `Auth failed: token not authenticated` so clients can distinguish authentication failures from other errors. Successful TokenReview returns user labels as above; invalid or empty responses are treated as authentication failure.
+
 ### Kubernetes Authorization (RBAC)
 
 Kubernetes authorization uses SelfSubjectRulesReview to check RBAC permissions. Authorization is **optional** and is enabled by adding the `authz` section to your `kubernetes_auth` configuration.

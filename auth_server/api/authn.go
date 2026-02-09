@@ -24,9 +24,13 @@ type Labels map[string][]string
 type Authenticator interface {
 	// Given a user name and a password (plain text), responds with the result or an error.
 	// Error should only be reported if request could not be serviced, not if it should be denied.
-	// A special NoMatch error is returned if the authorizer could not reach a decision,
-	// e.g. none of the rules matched.
-	// Another special WrongPass error is returned if the authorizer failed to authenticate.
+	//
+	// Special errors:
+	//   - NoMatch: this authenticator did not apply (e.g. wrong username); the server may try the next one.
+	//   - WrongPass or *AuthFailed: authentication failed. WrongPass is a generic "wrong password";
+	//     use NewAuthFailed(cause) to return a failure that includes an underlying error message
+	//     (shown to the client in the HTTP response).
+	//
 	// Implementations must be goroutine-safe.
 	Authenticate(user string, password PasswordString) (bool, Labels, error)
 
@@ -42,7 +46,8 @@ type Authenticator interface {
 var NoMatch = errors.New("did not match any rule")
 
 // AuthFailed indicates authentication failed. It wraps an underlying error whose
-// message is included in Error() and shown in HTTP responses.
+// message is included in Error() and is shown to the client in the HTTP 401 response.
+// Use NewAuthFailed(cause) when the failure has a specific reason (e.g. token not authenticated).
 type AuthFailed struct {
 	Err error
 }
@@ -61,7 +66,8 @@ func NewAuthFailed(cause error) error {
 	return &AuthFailed{Err: cause}
 }
 
-// WrongPass is an AuthFailed for wrong password. Use this or NewAuthFailed for auth failures.
+// WrongPass is an AuthFailed with message "wrong password for user".
+// Use WrongPass for generic password/token failure, or NewAuthFailed(cause) to expose a specific reason.
 var WrongPass = NewAuthFailed(errors.New("wrong password for user"))
 
 type PasswordString string
