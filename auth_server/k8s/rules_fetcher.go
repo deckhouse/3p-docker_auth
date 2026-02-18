@@ -39,9 +39,12 @@ type RulesFetcherMetrics struct {
 	RequestLatency *prometheus.HistogramVec
 }
 
+// RulesFilterFunc filters a list of rules (e.g. by API group and resource).
+type RulesFilterFunc func(rules Rules) Rules
+
 // RulesFetcher fetches resource rules.
 type RulesFetcher interface {
-	GetRules(userInfo *UserInfo, ns string) ([]authorizationv1.ResourceRule, error)
+	GetRules(userInfo *UserInfo, ns string) (Rules, error)
 }
 
 // rulesFetcher fetches rules via SelfSubjectRulesReview with retry and metrics.
@@ -49,11 +52,13 @@ type rulesFetcher struct {
 	requestTimeout time.Duration
 	restConfig     *rest.Config
 	metrics        *RulesFetcherMetrics
+	rulesFilter    RulesFilterFunc
 }
 
 // NewRulesFetcher creates a RulesFetcher that calls Kubernetes SelfSubjectRulesReview.
 // restConfig must be non-nil; requestTimeout must be positive; if metrics is non-nil, all its fields must be set.
-func NewRulesFetcher(requestTimeout time.Duration, restConfig *rest.Config, metrics *RulesFetcherMetrics) (RulesFetcher, error) {
+// rulesFilter is optional; when non-nil, it is applied to the fetched rules before returning.
+func NewRulesFetcher(requestTimeout time.Duration, restConfig *rest.Config, metrics *RulesFetcherMetrics, rulesFilter RulesFilterFunc) (RulesFetcher, error) {
 	if restConfig == nil {
 		return nil, fmt.Errorf("restConfig is required")
 	}
@@ -72,6 +77,7 @@ func NewRulesFetcher(requestTimeout time.Duration, restConfig *rest.Config, metr
 		requestTimeout: requestTimeout,
 		restConfig:     restConfig,
 		metrics:        metrics,
+		rulesFilter:    rulesFilter,
 	}, nil
 }
 
@@ -104,7 +110,8 @@ func (k *rulesFetcher) recordMetrics(ok bool, durationSeconds float64) {
 }
 
 // GetRules fetches resource rules from Kubernetes using SelfSubjectRulesReview.
-func (k *rulesFetcher) GetRules(userInfo *UserInfo, ns string) ([]authorizationv1.ResourceRule, error) {
+// If rulesFilter was set in NewRulesFetcher, it is applied to the result.
+func (k *rulesFetcher) GetRules(userInfo *UserInfo, ns string) (Rules, error) {
 	backoff := webhook.DefaultRetryBackoffWithInitialDelay(DefaultBackoffInitialDelay)
 
 	ctx, cancel := context.WithTimeout(context.Background(), k.requestTimeout)
@@ -145,7 +152,12 @@ func (k *rulesFetcher) GetRules(userInfo *UserInfo, ns string) ([]authorizationv
 		return nil, err
 	}
 
-	return rules, nil
+	out := Rules(rules)
+	if k.rulesFilter != nil {
+		out = k.rulesFilter(out)
+	}
+
+	return out, nil
 }
 
 // cachedRulesFetcher wraps a RulesFetcher with an LRU cache.
@@ -169,7 +181,7 @@ func NewCachedRulesFetcher(inner RulesFetcher, successTTL, failureTTL time.Durat
 
 // GetRules returns cached rules or delegates to the inner fetcher and caches the result.
 // At most one in-flight inner.GetRules request runs per cache key; concurrent callers for the same key share the result.
-func (c *cachedRulesFetcher) GetRules(userInfo *UserInfo, ns string) ([]authorizationv1.ResourceRule, error) {
+func (c *cachedRulesFetcher) GetRules(userInfo *UserInfo, ns string) (Rules, error) {
 	key, err := ComputeHash(userInfo, ns)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute cache key: %w", err)
@@ -177,7 +189,7 @@ func (c *cachedRulesFetcher) GetRules(userInfo *UserInfo, ns string) ([]authoriz
 
 	if val, ok := c.cache.Get(key); ok {
 		switch v := val.(type) {
-		case []authorizationv1.ResourceRule:
+		case Rules:
 			return v, nil
 		case error:
 			return nil, v
@@ -205,5 +217,5 @@ func (c *cachedRulesFetcher) GetRules(userInfo *UserInfo, ns string) ([]authoriz
 		return nil, err
 	}
 
-	return v.([]authorizationv1.ResourceRule), nil
+	return v.(Rules), nil
 }

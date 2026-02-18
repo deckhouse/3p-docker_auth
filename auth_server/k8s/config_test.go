@@ -18,560 +18,338 @@ package k8s
 
 import (
 	"testing"
+	"time"
 
 	authorizationv1 "k8s.io/api/authorization/v1"
 )
 
-func TestAuthzConfig_IsActionAllowed(t *testing.T) {
-	cfg := &AuthzConfig{
-		APIGroup: "registry.example.com",
-		Resource: "repositories",
-	}
-
+func TestAuthzConfig_Validate(t *testing.T) {
 	tests := []struct {
-		name        string
-		rules       []authorizationv1.ResourceRule
-		verb        string
-		resourcePath string
-		want        bool
+		name    string
+		cfg     AuthzConfig
+		wantErr bool
 	}{
 		{
-			name:        "empty rules",
-			rules:       []authorizationv1.ResourceRule{},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        false,
+			name: "valid",
+			cfg: AuthzConfig{
+				APIGroup: "registry.example.com",
+				Resource: "repositories",
+			},
+			wantErr: false,
 		},
 		{
-			name: "empty resource path",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{},
-				},
+			name: "missing APIGroup",
+			cfg: AuthzConfig{
+				APIGroup: "",
+				Resource: "repositories",
 			},
-			verb:        "get",
-			resourcePath: "",
-			want:        false,
+			wantErr: true,
 		},
 		{
-			name: "verb match with empty resource names",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{},
-				},
+			name: "missing Resource",
+			cfg: AuthzConfig{
+				APIGroup: "registry.example.com",
+				Resource: "",
 			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
+			wantErr: true,
 		},
 		{
-			name: "verb mismatch",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"create"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        false,
-		},
-		{
-			name: "verb wildcard match",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"*"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
-		},
-		{
-			name: "API group mismatch",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"other.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        false,
-		},
-		{
-			name: "API group wildcard match",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"*"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
-		},
-		{
-			name: "resource mismatch",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"images"},
-					ResourceNames: []string{},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        false,
-		},
-		{
-			name: "resource wildcard match",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"*"},
-					ResourceNames: []string{},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
-		},
-		{
-			name: "exact resource name match",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"foo/bar"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
-		},
-		{
-			name: "resource name mismatch",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"foo/baz"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        false,
-		},
-		{
-			name: "wildcard pattern match",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"foo/*"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
-		},
-		{
-			name: "wildcard pattern no match",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"foo/*"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "baz/bar",
-			want:        false,
-		},
-		{
-			name: "doublestar recursive pattern match",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"foo/**"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar/baz/qux",
-			want:        true,
-		},
-		{
-			name: "doublestar recursive pattern no match",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"foo/**"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "bar/foo/baz",
-			want:        false,
-		},
-		{
-			name: "multiple resource names - first matches",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"foo/bar", "baz/qux"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
-		},
-		{
-			name: "multiple resource names - second matches",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"foo/bar", "baz/qux"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "baz/qux",
-			want:        true,
-		},
-		{
-			name: "multiple resource names - none match",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"foo/bar", "baz/qux"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "other/path",
-			want:        false,
-		},
-		{
-			name: "multiple rules - first matches",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"create"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{},
-				},
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"foo/bar"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
-		},
-		{
-			name: "multiple rules - none match",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"create"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{},
-				},
-				{
-					Verbs:      []string{"delete"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"foo/bar"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        false,
-		},
-		{
-			name: "complex pattern with multiple wildcards",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"team-*/**"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "team-frontend/apps/web",
-			want:        true,
-		},
-		{
-			name: "case-insensitive resourcePath - uppercase",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"foo/bar"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "FOO/BAR",
-			want:        true,
-		},
-		{
-			name: "case-insensitive resourcePath - mixed case",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"foo/bar"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "FoO/BaR",
-			want:        true,
-		},
-		{
-			name: "case-insensitive API group - uppercase",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"REGISTRY.EXAMPLE.COM"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
-		},
-		{
-			name: "case-insensitive API group - mixed case",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"Registry.Example.Com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
-		},
-		{
-			name: "case-insensitive resource - uppercase",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"REPOSITORIES"},
-					ResourceNames: []string{},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
-		},
-		{
-			name: "case-insensitive resource - mixed case",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"Repositories"},
-					ResourceNames: []string{},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
-		},
-		{
-			name: "case-insensitive pattern - uppercase pattern",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"FOO/BAR"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
-		},
-		{
-			name: "case-insensitive pattern - mixed case pattern",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"FoO/BaR"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
-		},
-		{
-			name: "case-insensitive pattern with wildcard - uppercase",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"FOO/*"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
-		},
-		{
-			name: "case-insensitive doublestar pattern - uppercase",
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{"FOO/**"},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar/baz",
-			want:        true,
+			name:    "both missing",
+			cfg:     AuthzConfig{},
+			wantErr: true,
 		},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := cfg.IsActionAllowed(tt.rules, tt.verb, tt.resourcePath); got != tt.want {
-				t.Errorf("AuthzConfig.IsActionAllowed() = %v, want %v", got, tt.want)
+			err := tt.cfg.Validate("authz")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("AuthzConfig.Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
 }
 
-func TestAuthzConfig_IsActionAllowed_DifferentConfigs(t *testing.T) {
+func TestAuthzConfig_NeedsNamespaceCheck(t *testing.T) {
 	tests := []struct {
-		name        string
-		cfg         *AuthzConfig
-		rules       []authorizationv1.ResourceRule
-		verb        string
-		resourcePath string
-		want        bool
+		name    string
+		cfg     *AuthzConfig
+		actions []string
+		want    bool
 	}{
 		{
-			name: "different API group",
+			name: "empty NamespaceCheckVerbs",
 			cfg: &AuthzConfig{
-				APIGroup: "other.example.com",
-				Resource: "repositories",
+				NamespaceCheckVerbs: []string{},
 			},
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"other.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{},
-				},
-			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
+			actions: []string{"push", "delete"},
+			want:    false,
 		},
 		{
-			name: "different resource",
+			name: "nil NamespaceCheckVerbs",
 			cfg: &AuthzConfig{
-				APIGroup: "registry.example.com",
-				Resource: "images",
+				NamespaceCheckVerbs: nil,
 			},
-			rules: []authorizationv1.ResourceRule{
-				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"images"},
-					ResourceNames: []string{},
-				},
+			actions: []string{"push"},
+			want:    false,
+		},
+		{
+			name: "action in list",
+			cfg: &AuthzConfig{
+				NamespaceCheckVerbs: []string{"push", "delete"},
 			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
+			actions: []string{"pull", "push"},
+			want:    true,
+		},
+		{
+			name: "action not in list",
+			cfg: &AuthzConfig{
+				NamespaceCheckVerbs: []string{"push", "delete"},
+			},
+			actions: []string{"pull"},
+			want:    false,
+		},
+		{
+			name: "empty actions",
+			cfg: &AuthzConfig{
+				NamespaceCheckVerbs: []string{"push"},
+			},
+			actions: []string{},
+			want:    false,
+		},
+		{
+			name: "single verb match",
+			cfg: &AuthzConfig{
+				NamespaceCheckVerbs: []string{"delete"},
+			},
+			actions: []string{"delete"},
+			want:    true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cfg.NeedsNamespaceCheck(tt.actions)
+			if got != tt.want {
+				t.Errorf("NeedsNamespaceCheck() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAuthzConfig_FilterRules(t *testing.T) {
+	ruleRegistryRepos := authorizationv1.ResourceRule{
+		Verbs:         []string{"get"},
+		APIGroups:     []string{"registry.example.com"},
+		Resources:     []string{"repositories"},
+		ResourceNames: []string{},
+	}
+	ruleOtherGroup := authorizationv1.ResourceRule{
+		Verbs:         []string{"get"},
+		APIGroups:     []string{"other.example.com"},
+		Resources:     []string{"repositories"},
+		ResourceNames: []string{},
+	}
+	ruleOtherResource := authorizationv1.ResourceRule{
+		Verbs:         []string{"get"},
+		APIGroups:     []string{"registry.example.com"},
+		Resources:     []string{"images"},
+		ResourceNames: []string{},
+	}
+	ruleWildcardGroup := authorizationv1.ResourceRule{
+		Verbs:         []string{"get"},
+		APIGroups:     []string{"*"},
+		Resources:     []string{"repositories"},
+		ResourceNames: []string{},
+	}
+	ruleWildcardResource := authorizationv1.ResourceRule{
+		Verbs:         []string{"get"},
+		APIGroups:     []string{"registry.example.com"},
+		Resources:     []string{"*"},
+		ResourceNames: []string{},
+	}
+	ruleMultipleVerbs := authorizationv1.ResourceRule{
+		Verbs:         []string{"get", "create", "delete"},
+		APIGroups:     []string{"registry.example.com"},
+		Resources:     []string{"repositories"},
+		ResourceNames: []string{},
+	}
+
+	tests := []struct {
+		name     string
+		cfg      *AuthzConfig
+		rules    Rules
+		wantLen  int
+		wantAPIG string
+	}{
+		{
+			name:     "match API group and resource",
+			cfg:      &AuthzConfig{APIGroup: "registry.example.com", Resource: "repositories"},
+			rules:    Rules{ruleRegistryRepos},
+			wantLen:  1,
+			wantAPIG: "registry.example.com",
+		},
+		{
+			name:    "filter out different API group",
+			cfg:     &AuthzConfig{APIGroup: "registry.example.com", Resource: "repositories"},
+			rules:   Rules{ruleOtherGroup},
+			wantLen: 0,
+		},
+		{
+			name:    "filter out different resource",
+			cfg:     &AuthzConfig{APIGroup: "registry.example.com", Resource: "repositories"},
+			rules:   Rules{ruleOtherResource},
+			wantLen: 0,
+		},
+		{
+			name:     "wildcard API group matches",
+			cfg:      &AuthzConfig{APIGroup: "registry.example.com", Resource: "repositories"},
+			rules:    Rules{ruleWildcardGroup},
+			wantLen:  1,
+			wantAPIG: "*",
+		},
+		{
+			name:     "wildcard resource matches",
+			cfg:      &AuthzConfig{APIGroup: "registry.example.com", Resource: "repositories"},
+			rules:    Rules{ruleWildcardResource},
+			wantLen:  1,
 		},
 		{
 			name: "case-insensitive API group in config",
-			cfg: &AuthzConfig{
-				APIGroup: "REGISTRY.EXAMPLE.COM",
-				Resource: "repositories",
-			},
-			rules: []authorizationv1.ResourceRule{
+			cfg:  &AuthzConfig{APIGroup: "REGISTRY.EXAMPLE.COM", Resource: "repositories"},
+			rules: Rules{
 				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{},
+					Verbs:     []string{"get"},
+					APIGroups: []string{"registry.example.com"},
+					Resources: []string{"repositories"},
 				},
 			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
+			wantLen:  1,
+			wantAPIG: "registry.example.com",
 		},
 		{
 			name: "case-insensitive resource in config",
-			cfg: &AuthzConfig{
-				APIGroup: "registry.example.com",
-				Resource: "REPOSITORIES",
-			},
-			rules: []authorizationv1.ResourceRule{
+			cfg:  &AuthzConfig{APIGroup: "registry.example.com", Resource: "REPOSITORIES"},
+			rules: Rules{
 				{
-					Verbs:      []string{"get"},
-					APIGroups:  []string{"registry.example.com"},
-					Resources:  []string{"repositories"},
-					ResourceNames: []string{},
+					Verbs:     []string{"get"},
+					APIGroups: []string{"registry.example.com"},
+					Resources: []string{"repositories"},
 				},
 			},
-			verb:        "get",
-			resourcePath: "foo/bar",
-			want:        true,
+			wantLen: 1,
+		},
+		{
+			name: "multiple rules - only matching kept",
+			cfg:  &AuthzConfig{APIGroup: "registry.example.com", Resource: "repositories"},
+			rules: Rules{ruleOtherGroup, ruleRegistryRepos, ruleOtherResource},
+			wantLen: 1,
+		},
+		{
+			name:    "empty rules",
+			cfg:     &AuthzConfig{APIGroup: "registry.example.com", Resource: "repositories"},
+			rules:   Rules{},
+			wantLen: 0,
+		},
+		{
+			name:     "rule with multiple verbs - kept when group and resource match",
+			cfg:      &AuthzConfig{APIGroup: "registry.example.com", Resource: "repositories"},
+			rules:    Rules{ruleMultipleVerbs},
+			wantLen:  1,
+			wantAPIG: "registry.example.com",
 		},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.cfg.IsActionAllowed(tt.rules, tt.verb, tt.resourcePath); got != tt.want {
-				t.Errorf("AuthzConfig.IsActionAllowed() = %v, want %v", got, tt.want)
+			got := tt.cfg.FilterRules(tt.rules)
+			if len(got) != tt.wantLen {
+				t.Errorf("FilterRules() len = %v, want %v", len(got), tt.wantLen)
+			}
+			if tt.wantAPIG != "" && len(got) > 0 {
+				if len(got[0].APIGroups) == 0 || got[0].APIGroups[0] != tt.wantAPIG {
+					t.Errorf("FilterRules() first rule APIGroups = %v", got[0].APIGroups)
+				}
+			}
+		})
+	}
+}
+
+func TestAuthConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     *AuthConfig
+		check   func(t *testing.T, c *AuthConfig)
+		wantErr bool
+	}{
+		{
+			name: "sets defaults when zero",
+			cfg:  &AuthConfig{},
+			check: func(t *testing.T, c *AuthConfig) {
+				if c.Cache.SuccessTTL != defaultSuccessTTL {
+					t.Errorf("SuccessTTL = %v, want %v", c.Cache.SuccessTTL, defaultSuccessTTL)
+				}
+				if c.Cache.FailureTTL != defaultFailureTTL {
+					t.Errorf("FailureTTL = %v, want %v", c.Cache.FailureTTL, defaultFailureTTL)
+				}
+				if c.UserName != defaultUserName {
+					t.Errorf("UserName = %q, want %q", c.UserName, defaultUserName)
+				}
+				if c.Limits.RequestTimeout != defaultRequestTimeout {
+					t.Errorf("RequestTimeout = %v, want %v", c.Limits.RequestTimeout, defaultRequestTimeout)
+				}
+			},
+			wantErr: false,
+		},
+		{
+			name: "preserves non-zero values",
+			cfg: &AuthConfig{
+				UserName: "custom",
+				Cache: struct {
+					SuccessTTL time.Duration `yaml:"success_ttl,omitempty"`
+					FailureTTL time.Duration `yaml:"failure_ttl,omitempty"`
+				}{
+					SuccessTTL: 2 * time.Minute,
+					FailureTTL:  1 * time.Minute,
+				},
+				Limits: struct {
+					QPS            float32       `yaml:"qps,omitempty"`
+					Burst          int           `yaml:"burst,omitempty"`
+					RequestTimeout time.Duration `yaml:"request_timeout,omitempty"`
+				}{
+					RequestTimeout: 5 * time.Second,
+				},
+			},
+			check: func(t *testing.T, c *AuthConfig) {
+				if c.UserName != "custom" {
+					t.Errorf("UserName = %q, want custom", c.UserName)
+				}
+				if c.Cache.SuccessTTL != 2*time.Minute {
+					t.Errorf("SuccessTTL = %v", c.Cache.SuccessTTL)
+				}
+				if c.Limits.RequestTimeout != 5*time.Second {
+					t.Errorf("RequestTimeout = %v", c.Limits.RequestTimeout)
+				}
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid with Authz",
+			cfg: &AuthConfig{
+				Authz: &AuthzConfig{
+					APIGroup: "registry.example.com",
+					Resource: "repositories",
+				},
+			},
+			check:   nil,
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate("kubernetes_auth")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("AuthConfig.Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.check != nil && err == nil {
+				tt.check(t, tt.cfg)
 			}
 		})
 	}

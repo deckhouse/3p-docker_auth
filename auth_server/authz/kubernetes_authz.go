@@ -72,10 +72,11 @@ func NewKubernetesAuthz(config *k8s.AuthConfig) (api.Authorizer, error) {
 		RequestLatency: k8sAuthzRulesRequestDurationSeconds,
 	}
 
-	fetcher, err := k8s.NewRulesFetcher(config.Limits.RequestTimeout, rc, fetcherMetrics)
+	fetcher, err := k8s.NewRulesFetcher(config.Limits.RequestTimeout, rc, fetcherMetrics, config.Authz.FilterRules)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rules fetcher: %w", err)
 	}
+
 	cachedFetcher := k8s.NewCachedRulesFetcher(fetcher, config.Cache.SuccessTTL, config.Cache.FailureTTL)
 
 	namespaceChecker, err := k8s.NewNamespaceChecker(config.Limits.RequestTimeout, rc)
@@ -143,7 +144,7 @@ func (ka *kubernetesAuthz) Authorize(req *api.AuthRequestInfo) ([]string, error)
 			continue
 		}
 
-		if ka.cfg.Authz.IsActionAllowed(rules, verb, repoPath) {
+		if rules.IsActionAllowed(verb, repoPath) {
 			allowed = append(allowed, action)
 		}
 	}

@@ -23,9 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bmatcuk/doublestar/v4"
-	"github.com/cesanta/glog"
-	authorizationv1 "k8s.io/api/authorization/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
@@ -150,72 +147,39 @@ func (c AuthzConfig) Validate(configKey string) error {
 	return nil
 }
 
-// matchRule checks if a single ResourceRule matches the verb, API group, resource, and resource path.
+// FilterRules returns rules that match the given API group and resource.
 // It performs case-insensitive matching for API groups and resources.
-func (c *AuthzConfig) matchRule(rule authorizationv1.ResourceRule, verb string, resourcePath string) bool {
-	if !slices.Contains(rule.Verbs, verb) && !slices.Contains(rule.Verbs, "*") {
-		return false
-	}
-
-	apiGroupMatch := false
-	for _, apiGroup := range rule.APIGroups {
-		if apiGroup == "*" || strings.EqualFold(apiGroup, c.APIGroup) {
-			apiGroupMatch = true
-			break
-		}
-	}
-
-	if !apiGroupMatch {
-		return false
-	}
-
-	resourceMatch := false
-	for _, resource := range rule.Resources {
-		if resource == "*" || strings.EqualFold(resource, c.Resource) {
-			resourceMatch = true
-			break
-		}
-	}
-
-	if !resourceMatch {
-		return false
-	}
-
-	if len(rule.ResourceNames) == 0 {
-		return true
-	}
-
-	for _, pattern := range rule.ResourceNames {
-		lp := strings.ToLower(pattern)
-		if matched, err := doublestar.Match(lp, resourcePath); matched {
-			return true
-		} else if err != nil {
-			glog.Warningf("Error matching pattern %q for path %q: %v", pattern, resourcePath, err)
-		}
-	}
-
-	return false
-}
-
-// IsActionAllowed checks if the verb is allowed for the resource path using doublestar matching.
-// Pattern matching uses github.com/bmatcuk/doublestar/v4 for recursive glob support (**).
-func (c *AuthzConfig) IsActionAllowed(rules []authorizationv1.ResourceRule, verb string, resourcePath string) bool {
-	if resourcePath == "" {
-		return false
-	}
-
-	resourcePath = strings.ToLower(resourcePath)
-
+func (c *AuthzConfig) FilterRules(rules Rules) Rules {
+	var out Rules
 	for _, rule := range rules {
-		if c.matchRule(rule, verb, resourcePath) {
-			return true
+		apiGroupMatch := false
+		for _, apiGroup := range rule.APIGroups {
+			if apiGroup == "*" || strings.EqualFold(apiGroup, c.APIGroup) {
+				apiGroupMatch = true
+				break
+			}
 		}
-	}
+		if !apiGroupMatch {
+			continue
+		}
 
-	return false
+		resourceMatch := false
+		for _, resource := range rule.Resources {
+			if resource == "*" || strings.EqualFold(resource, c.Resource) {
+				resourceMatch = true
+				break
+			}
+		}
+		if !resourceMatch {
+			continue
+		}
+
+		out = append(out, rule)
+	}
+	return out
 }
 
-// Validate validates the AuthConfig and sets default values for optional fields.
+// Validate validates the AuthConfig and sets default values for optional fields in place.
 // Default values are set if not specified:
 //   - Cache.SuccessTTL: 1 minute
 //   - Cache.FailureTTL: 30 seconds
@@ -240,9 +204,14 @@ func (c *AuthConfig) Validate(configKey string) error {
 		c.Limits.RequestTimeout = defaultRequestTimeout
 	}
 
-	return validation.ValidateStruct(c,
+	err := validation.ValidateStruct(c,
 		validation.Field(&c.Authz),
 	)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // BuildRestConfig creates and configures a Kubernetes REST client configuration.
