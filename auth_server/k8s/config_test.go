@@ -272,16 +272,40 @@ func TestAuthzConfig_FilterRules(t *testing.T) {
 	}
 }
 
+func TestApplyDefaults(t *testing.T) {
+	c := &AuthConfig{}
+	ApplyDefaults(c)
+	if c.Cache.SuccessTTL != defaultSuccessTTL {
+		t.Errorf("SuccessTTL = %v, want %v", c.Cache.SuccessTTL, defaultSuccessTTL)
+	}
+	if c.Cache.FailureTTL != defaultFailureTTL {
+		t.Errorf("FailureTTL = %v, want %v", c.Cache.FailureTTL, defaultFailureTTL)
+	}
+	if c.UserName != defaultUserName {
+		t.Errorf("UserName = %q, want %q", c.UserName, defaultUserName)
+	}
+	if c.Limits.RequestTimeout != defaultRequestTimeout {
+		t.Errorf("RequestTimeout = %v, want %v", c.Limits.RequestTimeout, defaultRequestTimeout)
+	}
+	// ApplyDefaults is idempotent and does not overwrite non-zero values
+	ApplyDefaults(c)
+	if c.Cache.SuccessTTL != defaultSuccessTTL || c.UserName != defaultUserName {
+		t.Error("ApplyDefaults overwrote existing values")
+	}
+}
+
 func TestAuthConfig_Validate(t *testing.T) {
 	tests := []struct {
-		name    string
-		cfg     *AuthConfig
-		check   func(t *testing.T, c *AuthConfig)
-		wantErr bool
+		name          string
+		cfg           *AuthConfig
+		applyDefaults bool
+		check         func(t *testing.T, c *AuthConfig)
+		wantErr       bool
 	}{
 		{
-			name: "sets defaults when zero",
-			cfg:  &AuthConfig{},
+			name:          "sets defaults when zero",
+			cfg:           &AuthConfig{},
+			applyDefaults: true,
 			check: func(t *testing.T, c *AuthConfig) {
 				if c.Cache.SuccessTTL != defaultSuccessTTL {
 					t.Errorf("SuccessTTL = %v, want %v", c.Cache.SuccessTTL, defaultSuccessTTL)
@@ -299,7 +323,8 @@ func TestAuthConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "preserves non-zero values",
+			name:          "preserves non-zero values",
+			applyDefaults: false,
 			cfg: &AuthConfig{
 				UserName: "custom",
 				Cache: struct {
@@ -331,7 +356,8 @@ func TestAuthConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "valid with Authz",
+			name:          "valid with Authz",
+			applyDefaults: false,
 			cfg: &AuthConfig{
 				Authz: &AuthzConfig{
 					APIGroup: "registry.example.com",
@@ -344,7 +370,10 @@ func TestAuthConfig_Validate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.cfg.Validate("kubernetes_auth")
+			if tt.applyDefaults {
+				ApplyDefaults(tt.cfg)
+			}
+			err := tt.cfg.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("AuthConfig.Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}

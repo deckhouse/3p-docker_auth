@@ -179,15 +179,17 @@ func (c *AuthzConfig) FilterRules(rules Rules) Rules {
 	return out
 }
 
-// Validate validates the AuthConfig and sets default values for optional fields in place.
-// Default values are set if not specified:
+// ApplyDefaults sets default values for optional AuthConfig fields in place.
+// Defaults applied:
 //   - Cache.SuccessTTL: 1 minute
 //   - Cache.FailureTTL: 30 seconds
 //   - UserName: "token"
 //   - Limits.RequestTimeout: 10 seconds
-//
-// Also validates the nested Authz configuration if present.
-func (c *AuthConfig) Validate(configKey string) error {
+func ApplyDefaults(c *AuthConfig) {
+	if c == nil {
+		return
+	}
+
 	if c.Cache.SuccessTTL == 0 {
 		c.Cache.SuccessTTL = defaultSuccessTTL
 	}
@@ -203,15 +205,13 @@ func (c *AuthConfig) Validate(configKey string) error {
 	if c.Limits.RequestTimeout <= 0 {
 		c.Limits.RequestTimeout = defaultRequestTimeout
 	}
+}
 
-	err := validation.ValidateStruct(c,
+// Validate validates the AuthConfig and the nested Authz configuration if present.
+func (c AuthConfig) Validate() error {
+	return validation.ValidateStruct(&c,
 		validation.Field(&c.Authz),
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // BuildRestConfig creates and configures a Kubernetes REST client configuration.

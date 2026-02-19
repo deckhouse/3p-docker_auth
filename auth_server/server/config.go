@@ -186,7 +186,8 @@ func validate(c *Config) error {
 		return errors.New("no auth methods are configured, this is probably a mistake. Use an empty user map if you really want to deny everyone")
 	}
 	if c.KubernetesAuth != nil {
-		if err := c.KubernetesAuth.Validate("kubernetes_auth"); err != nil {
+		k8s.ApplyDefaults(c.KubernetesAuth)
+		if err := c.KubernetesAuth.Validate(); err != nil {
 			return err
 		}
 	}
