@@ -16,8 +16,6 @@
 
 package k8s
 
-import "time"
-
 const (
 	UserLabel        = "k8s-username"
 	UIDLabel         = "k8s-uid"
@@ -27,10 +25,6 @@ const (
 	// DefaultCacheSize is the default size for the LRU cache used in Kubernetes authorization.
 	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go#L130
 	DefaultCacheSize = 8192
-
-	// DefaultBackoffInitialDelay is the default initial delay for exponential backoff retries.
-	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/pkg/util/webhook/webhook.go#L42
-	DefaultBackoffInitialDelay = 500 * time.Millisecond
 )
 
 // verbsMap maps Docker actions to Kubernetes verbs (standard for Docker Registry).

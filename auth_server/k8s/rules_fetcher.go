@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/cache"
 	"k8s.io/apiserver/pkg/util/webhook"
+	webhookauthn "k8s.io/apiserver/plugin/pkg/authenticator/token/webhook"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -112,7 +113,7 @@ func (k *rulesFetcher) recordMetrics(ok bool, durationSeconds float64) {
 // GetRules fetches resource rules from Kubernetes using SelfSubjectRulesReview.
 // If rulesFilter was set in NewRulesFetcher, it is applied to the result.
 func (k *rulesFetcher) GetRules(userInfo *UserInfo, ns string) (Rules, error) {
-	backoff := webhook.DefaultRetryBackoffWithInitialDelay(DefaultBackoffInitialDelay)
+	backoff := *webhookauthn.DefaultRetryBackoff()
 
 	ctx, cancel := context.WithTimeout(context.Background(), k.requestTimeout)
 	defer cancel()
