@@ -48,10 +48,6 @@ type AuthServer struct {
 	config         *Config
 	authenticators []api.Authenticator
 	authorizers    []api.Authorizer
-	ga             *authn.GoogleAuth
-	gha            *authn.GitHubAuth
-	oidc           *authn.OIDCAuth
-	glab           *authn.GitlabAuth
 
 	// Additional handlers
 	metricsHandler http.Handler
@@ -69,82 +65,8 @@ func NewAuthServer(c *Config) (*AuthServer, error) {
 		}
 		as.authorizers = append(as.authorizers, staticAuthorizer)
 	}
-	if c.ACLMongo != nil {
-		mongoAuthorizer, err := authz.NewACLMongoAuthorizer(c.ACLMongo)
-		if err != nil {
-			return nil, err
-		}
-		as.authorizers = append(as.authorizers, mongoAuthorizer)
-	}
-	if c.ACLXorm != nil {
-		xormAuthorizer, err := authz.NewACLXormAuthz(c.ACLXorm)
-		if err != nil {
-			return nil, err
-		}
-		as.authorizers = append(as.authorizers, xormAuthorizer)
-	}
-	if c.ExtAuthz != nil {
-		extAuthorizer := authz.NewExtAuthzAuthorizer(c.ExtAuthz)
-		as.authorizers = append(as.authorizers, extAuthorizer)
-	}
 	if c.Users != nil {
 		as.authenticators = append(as.authenticators, authn.NewStaticUserAuth(c.Users))
-	}
-	if c.ExtAuth != nil {
-		as.authenticators = append(as.authenticators, authn.NewExtAuth(c.ExtAuth))
-	}
-	if c.GoogleAuth != nil {
-		ga, err := authn.NewGoogleAuth(c.GoogleAuth)
-		if err != nil {
-			return nil, err
-		}
-		as.authenticators = append(as.authenticators, ga)
-		as.ga = ga
-	}
-	if c.GitHubAuth != nil {
-		gha, err := authn.NewGitHubAuth(c.GitHubAuth)
-		if err != nil {
-			return nil, err
-		}
-		as.authenticators = append(as.authenticators, gha)
-		as.gha = gha
-	}
-	if c.OIDCAuth != nil {
-		oidc, err := authn.NewOIDCAuth(c.OIDCAuth)
-		if err != nil {
-			return nil, err
-		}
-		as.authenticators = append(as.authenticators, oidc)
-		as.oidc = oidc
-	}
-	if c.GitlabAuth != nil {
-		glab, err := authn.NewGitlabAuth(c.GitlabAuth)
-		if err != nil {
-			return nil, err
-		}
-		as.authenticators = append(as.authenticators, glab)
-		as.glab = glab
-	}
-	if c.LDAPAuth != nil {
-		la, err := authn.NewLDAPAuth(c.LDAPAuth)
-		if err != nil {
-			return nil, err
-		}
-		as.authenticators = append(as.authenticators, la)
-	}
-	if c.MongoAuth != nil {
-		ma, err := authn.NewMongoAuth(c.MongoAuth)
-		if err != nil {
-			return nil, err
-		}
-		as.authenticators = append(as.authenticators, ma)
-	}
-	if c.XormAuthn != nil {
-		xa, err := authn.NewXormAuth(c.XormAuthn)
-		if err != nil {
-			return nil, err
-		}
-		as.authenticators = append(as.authenticators, xa)
 	}
 	if c.PluginAuthn != nil {
 		pluginAuthn, err := authn.NewPluginAuthn(c.PluginAuthn)
@@ -458,40 +380,15 @@ func (as *AuthServer) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		as.doAuth(rw, req)
 	case req.URL.Path == path_prefix+"/auth/token":
 		as.doAuth(rw, req)
-	case req.URL.Path == path_prefix+"/google_auth" && as.ga != nil:
-		as.ga.DoGoogleAuth(rw, req)
-	case req.URL.Path == path_prefix+"/github_auth" && as.gha != nil:
-		as.gha.DoGitHubAuth(rw, req)
-	case req.URL.Path == path_prefix+"/oidc_auth" && as.oidc != nil:
-		as.oidc.DoOIDCAuth(rw, req)
-	case req.URL.Path == path_prefix+"/gitlab_auth" && as.glab != nil:
-		as.glab.DoGitlabAuth(rw, req)
 	default:
 		http.Error(rw, "Not found", http.StatusNotFound)
 		return
 	}
 }
 
-// https://developers.google.com/identity/sign-in/web/server-side-flow
 func (as *AuthServer) doIndex(rw http.ResponseWriter, req *http.Request) {
-	switch {
-	case as.ga != nil:
-		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(rw, "<h1>%s</h1>\n", as.config.Token.Issuer)
-		fmt.Fprint(rw, `<p><a href="/google_auth">Login with Google account</a></p>`)
-	case as.gha != nil:
-		url := as.config.Server.PathPrefix + "/github_auth"
-		http.Redirect(rw, req, url, 301)
-	case as.oidc != nil:
-		url := as.config.Server.PathPrefix + "/oidc_auth"
-		http.Redirect(rw, req, url, 301)
-	case as.glab != nil:
-		url := as.config.Server.PathPrefix + "/gitlab_auth"
-		http.Redirect(rw, req, url, 301)
-	default:
-		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(rw, "<h1>%s</h1>\n", as.config.Token.Issuer)
-	}
+	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(rw, "<h1>%s</h1>\n", as.config.Token.Issuer)
 }
 
 func (as *AuthServer) doMetrics(rw http.ResponseWriter, req *http.Request) {
