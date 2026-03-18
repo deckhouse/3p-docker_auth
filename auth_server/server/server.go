@@ -246,7 +246,7 @@ func (as *AuthServer) ParseRequest(req *http.Request) (*authRequest, error) {
 func (as *AuthServer) Authenticate(ar *authRequest) (api.AuthenticateResult, error) {
 	for i, a := range as.authenticators {
 		res, err := a.Authenticate(ar.Account, ar.Password)
-		glog.V(2).Infof("Authn %s %s -> %+v, %v", a.Name(), ar.Account, res, err)
+		glog.V(2).Infof("Authn %s %s -> %t, %+v, %v", a.Name(), ar.Account, res.Authenticated, res.Labels, err)
 		if err != nil {
 			if errors.Is(err, api.NoMatch) {
 				continue

@@ -134,8 +134,12 @@ func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString)
 		return api.AuthenticateResult{}, api.WrongPass
 	}
 
-	userInfo := k8s.UserInfoFromUser(authResp.User)
-	userInfo.BearerToken = string(password)
+	userInfo := k8s.UserInfo{
+		Name:        authResp.User.GetName(),
+		UID:         authResp.User.GetUID(),
+		Groups:      authResp.User.GetGroups(),
+		BearerToken: string(password),
+	}
 
 	glog.V(1).Infof("Kubernetes authn success: %s", userInfo.Name)
 	return api.AuthenticateResult{Authenticated: true, Labels: userInfo.ToLabels(), Data: userInfo}, nil

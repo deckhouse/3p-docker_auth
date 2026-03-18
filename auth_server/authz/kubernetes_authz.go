@@ -107,7 +107,7 @@ func (ka *kubernetesAuthz) Authorize(req *api.AuthRequestInfo) ([]string, error)
 	}
 
 	userInfo, ok := req.AuthenticatorData.(k8s.UserInfo)
-	if !ok || userInfo.Name == "" || userInfo.BearerToken == "" {
+	if !ok || !userInfo.IsValid() {
 		glog.Warning("Invalid userInfo, skipping authorization")
 		return nil, api.NoMatch
 	}

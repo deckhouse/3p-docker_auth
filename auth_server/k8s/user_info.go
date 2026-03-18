@@ -16,11 +16,7 @@
 
 package k8s
 
-import (
-	"github.com/cesanta/docker_auth/auth_server/api"
-
-	"k8s.io/apiserver/pkg/authentication/user"
-)
+import "github.com/cesanta/docker_auth/auth_server/api"
 
 // UserInfo represents Kubernetes user information from authenticator.Response.User.
 // It mirrors the structure of k8s.io/apiserver/pkg/authentication/user.Info.
@@ -28,8 +24,13 @@ type UserInfo struct {
 	Name        string
 	UID         string
 	Groups      []string
-	Extra       map[string][]string
 	BearerToken string
+}
+
+// IsValid reports whether UserInfo has the fields required for Kubernetes authorization
+// and rules fetching (username, uid, and bearer token).
+func (u *UserInfo) IsValid() bool {
+	return u.Name != "" && u.UID != "" && u.BearerToken != ""
 }
 
 // ToLabels converts UserInfo to api.Labels format.
@@ -52,25 +53,4 @@ func (u *UserInfo) ToLabels() api.Labels {
 	}
 
 	return labels
-}
-
-// UserInfoFromUser creates a UserInfo from a user.Info interface.
-// It extracts the username, UID, groups, and extra fields from the user.Info.
-func UserInfoFromUser(userInfo user.Info) UserInfo {
-	var u UserInfo
-
-	if userInfo == nil {
-		u.Extra = make(map[string][]string)
-		return u
-	}
-
-	u.Name = userInfo.GetName()
-	u.UID = userInfo.GetUID()
-	u.Groups = userInfo.GetGroups()
-	u.Extra = userInfo.GetExtra()
-	if u.Extra == nil {
-		u.Extra = make(map[string][]string)
-	}
-
-	return u
 }
