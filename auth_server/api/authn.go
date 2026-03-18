@@ -20,6 +20,14 @@ import "errors"
 
 type Labels map[string][]string
 
+// AuthenticateResult is returned when Authenticate completes without an error.
+// The zero value means not authenticated.
+type AuthenticateResult struct {
+	Authenticated bool
+	Labels        Labels
+	Data          any
+}
+
 // Authentication plugin interface.
 type Authenticator interface {
 	// Given a user name and a password (plain text), responds with the result or an error.
@@ -32,7 +40,7 @@ type Authenticator interface {
 	//     (shown to the client in the HTTP response).
 	//
 	// Implementations must be goroutine-safe.
-	Authenticate(user string, password PasswordString) (bool, Labels, error)
+	Authenticate(user string, password PasswordString) (AuthenticateResult, error)
 
 	// Finalize resources in preparation for shutdown.
 	// When this call is made there are guaranteed to be no Authenticate requests in flight

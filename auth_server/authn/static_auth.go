@@ -47,17 +47,17 @@ func NewStaticUserAuth(users map[string]*Requirements) *staticUsersAuth {
 	return &staticUsersAuth{users: users}
 }
 
-func (sua *staticUsersAuth) Authenticate(user string, password api.PasswordString) (bool, api.Labels, error) {
+func (sua *staticUsersAuth) Authenticate(user string, password api.PasswordString) (api.AuthenticateResult, error) {
 	reqs := sua.users[user]
 	if reqs == nil {
-		return false, nil, api.NoMatch
+		return api.AuthenticateResult{}, api.NoMatch
 	}
 	if reqs.Password != nil {
 		if bcrypt.CompareHashAndPassword([]byte(*reqs.Password), []byte(password)) != nil {
-			return false, nil, nil
+			return api.AuthenticateResult{}, nil
 		}
 	}
-	return true, reqs.Labels, nil
+	return api.AuthenticateResult{Authenticated: true, Labels: reqs.Labels}, nil
 }
 
 func (sua *staticUsersAuth) Stop() {

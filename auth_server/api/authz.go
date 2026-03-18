@@ -46,13 +46,14 @@ type Authorizer interface {
 }
 
 type AuthRequestInfo struct {
-	Account string
-	Type    string
-	Name    string
-	Service string
-	IP      net.IP
-	Actions []string
-	Labels  Labels
+	Account           string
+	Type              string
+	Name              string
+	Service           string
+	IP                net.IP
+	Actions           []string
+	Labels            Labels
+	AuthenticatorData any
 }
 
 func (ai AuthRequestInfo) String() string {

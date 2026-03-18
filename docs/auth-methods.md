@@ -49,17 +49,15 @@ kubernetes_auth:
 
 When a user authenticates via Kubernetes, the following labels are automatically created from the TokenReview response:
 
-- `k8s-username`: The Kubernetes username
-- `k8s-uid`: The Kubernetes user UID
-- `k8s-groups`: List of Kubernetes groups the user belongs to
-- `k8s-extra-*`: Any extra fields from the TokenReview response (prefixed with `k8s-extra-`)
-- `groups`: Standard groups label (same as `k8s-groups`) for compatibility with ACL matching
+- `username`: The Kubernetes username (same key as other auth methods for ACL)
+- `uid`: The Kubernetes user UID
+- `groups`: Kubernetes groups the user belongs to (same label as other auth methods for ACL)
 
 These labels can be used in ACL rules for authorization:
 
 ```yaml
 acl:
-  - match: { labels: { "k8s-groups": "developers" } }
+  - match: { labels: { "groups": "developers" } }
     actions: ["pull", "push"]
     comment: "Developers can pull and push images"
   - match: { labels: { "groups": "admins" } }
@@ -198,7 +196,7 @@ When both ACL and Kubernetes authz are configured, they are evaluated in a speci
 # Scenario 1: ACL allows, Kubernetes authz would deny
 # Result: Access GRANTED (ACL is checked first and allows, K8s authz is not evaluated)
 acl:
-  - match: { labels: { "k8s-groups": "developers" } }
+  - match: { labels: { "groups": "developers" } }
     actions: ["pull", "push"]
 
 kubernetes_auth:
@@ -210,7 +208,7 @@ kubernetes_auth:
 # Scenario 2: ACL denies (or NoMatch), Kubernetes authz allows
 # Result: Access GRANTED (Kubernetes authz is checked after ACL and allows)
 acl:
-  - match: { labels: { "k8s-groups": "readonly" } }
+  - match: { labels: { "groups": "readonly" } }
     actions: ["pull"]  # Only readonly group matches, developers don't match
 
 kubernetes_auth:
@@ -222,7 +220,7 @@ kubernetes_auth:
 # Scenario 3: ACL explicitly denies, Kubernetes authz allows
 # Result: Access GRANTED (Even explicit deny in ACL, K8s authz can override)
 acl:
-  - match: { labels: { "k8s-groups": "developers" } }
+  - match: { labels: { "groups": "developers" } }
     actions: []  # Explicit deny (empty actions)
 
 kubernetes_auth:
@@ -234,7 +232,7 @@ kubernetes_auth:
 # Scenario 4: Both deny
 # Result: Access DENIED
 acl:
-  - match: { labels: { "k8s-groups": "developers" } }
+  - match: { labels: { "groups": "developers" } }
     actions: []  # Deny
 
 kubernetes_auth:
@@ -318,16 +316,16 @@ kubernetes_auth:
   # Note: No 'authz' section - Kubernetes RBAC authorization is NOT enabled
 
 acl:
-  - match: { labels: { "k8s-groups": "developers" } }
+  - match: { labels: { "groups": "developers" } }
     actions: ["pull", "push"]
     comment: "Developers can pull and push all images"
-  - match: { labels: { "k8s-groups": "readonly" } }
+  - match: { labels: { "groups": "readonly" } }
     actions: ["pull"]
     comment: "Read-only users can only pull images"
-  - match: { labels: { "k8s-username": "admin" } }
+  - match: { labels: { "username": "admin" } }
     actions: ["*"]
     comment: "Admin user has full access"
-  - match: { labels: { "k8s-uid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890" } }
+  - match: { labels: { "uid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890" } }
     actions: ["*"]
     comment: "User with specific UID has full access"
 ```

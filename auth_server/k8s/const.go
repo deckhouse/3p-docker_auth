@@ -17,10 +17,8 @@
 package k8s
 
 const (
-	UserLabel        = "k8s-username"
-	UIDLabel         = "k8s-uid"
-	GroupsLabel      = "k8s-groups"
-	ExtraLabelPrefix = "k8s-extra-"
+	UserLabel = "username"
+	UIDLabel  = "uid"
 
 	// DefaultCacheSize is the default size for the LRU cache used in Kubernetes authorization.
 	// Ref: https://github.com/kubernetes/kubernetes/blob/release-1.31/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go#L130

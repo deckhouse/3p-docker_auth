@@ -18,6 +18,7 @@ package k8s
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -43,9 +44,13 @@ type RulesFetcherMetrics struct {
 // RulesFilterFunc filters a list of rules (e.g. by API group and resource).
 type RulesFilterFunc func(rules Rules) Rules
 
+// ErrRulesInitError is returned when rules fetch initialization fails (e.g. empty bearer token
+// or invalid client config). CachedRulesFetcher does not cache this error.
+var ErrRulesInitError = errors.New("rules fetcher initialization failed")
+
 // RulesFetcher fetches resource rules.
 type RulesFetcher interface {
-	GetRules(userInfo *UserInfo, ns string) (Rules, error)
+	GetRules(userInfo UserInfo, ns string) (Rules, error)
 }
 
 // rulesFetcher fetches rules via SelfSubjectRulesReview with retry and metrics.
@@ -82,10 +87,15 @@ func NewRulesFetcher(requestTimeout time.Duration, restConfig *rest.Config, metr
 	}, nil
 }
 
-// buildClient returns a Kubernetes client configured to impersonate the given user.
-func (k *rulesFetcher) buildClient(userInfo *UserInfo) (kubernetes.Interface, error) {
+// buildClient returns a Kubernetes client that authenticates with userInfo.BearerToken.
+func (k *rulesFetcher) buildClient(userInfo UserInfo) (kubernetes.Interface, error) {
+	if userInfo.BearerToken == "" {
+		return nil, fmt.Errorf("BearerToken is required for rules fetch")
+	}
+
 	cfg := rest.CopyConfig(k.restConfig)
-	cfg.Impersonate = userInfo.ToImpersonationConfig()
+	cfg.BearerToken = userInfo.BearerToken
+	cfg.BearerTokenFile = ""
 
 	client, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
@@ -112,7 +122,7 @@ func (k *rulesFetcher) recordMetrics(ok bool, durationSeconds float64) {
 
 // GetRules fetches resource rules from Kubernetes using SelfSubjectRulesReview.
 // If rulesFilter was set in NewRulesFetcher, it is applied to the result.
-func (k *rulesFetcher) GetRules(userInfo *UserInfo, ns string) (Rules, error) {
+func (k *rulesFetcher) GetRules(userInfo UserInfo, ns string) (Rules, error) {
 	backoff := *webhookauthn.DefaultRetryBackoff()
 
 	ctx, cancel := context.WithTimeout(context.Background(), k.requestTimeout)
@@ -120,7 +130,7 @@ func (k *rulesFetcher) GetRules(userInfo *UserInfo, ns string) (Rules, error) {
 
 	client, err := k.buildClient(userInfo)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build impersonated client: %w", err)
+		return nil, fmt.Errorf("%w: failed to build kubernetes client: %w", ErrRulesInitError, err)
 	}
 
 	ssrr := &authorizationv1.SelfSubjectRulesReview{
@@ -182,8 +192,12 @@ func NewCachedRulesFetcher(inner RulesFetcher, successTTL, failureTTL time.Durat
 
 // GetRules returns cached rules or delegates to the inner fetcher and caches the result.
 // At most one in-flight inner.GetRules request runs per cache key; concurrent callers for the same key share the result.
-func (c *cachedRulesFetcher) GetRules(userInfo *UserInfo, ns string) (Rules, error) {
-	key, err := ComputeHash(userInfo, ns)
+func (c *cachedRulesFetcher) GetRules(userInfo UserInfo, ns string) (Rules, error) {
+	if userInfo.Name == "" && userInfo.UID == "" {
+		return nil, fmt.Errorf("userInfo.Name and userInfo.UID is required for rules cache key")
+	}
+
+	key, err := ComputeHash(ns, userInfo.Name, userInfo.UID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute cache key: %w", err)
 	}
@@ -200,7 +214,7 @@ func (c *cachedRulesFetcher) GetRules(userInfo *UserInfo, ns string) (Rules, err
 	v, err, _ := c.inflight.Do(key, func() (any, error) {
 		rules, err := c.inner.GetRules(userInfo, ns)
 		if err != nil {
-			if c.failureTTL > 0 {
+			if c.failureTTL > 0 && !errors.Is(err, ErrRulesInitError) {
 				c.cache.Add(key, err, c.failureTTL)
 			}
 

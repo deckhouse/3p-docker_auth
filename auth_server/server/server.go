@@ -101,15 +101,16 @@ func NewAuthServer(c *Config) (*AuthServer, error) {
 }
 
 type authRequest struct {
-	RemoteConnAddr string
-	RemoteAddr     string
-	RemoteIP       net.IP
-	User           string
-	Password       api.PasswordString
-	Account        string
-	Service        string
-	Scopes         []authScope
-	Labels         api.Labels
+	RemoteConnAddr    string
+	RemoteAddr        string
+	RemoteIP          net.IP
+	User              string
+	Password          api.PasswordString
+	Account           string
+	Service           string
+	Scopes            []authScope
+	Labels            api.Labels
+	AuthenticatorData any
 }
 
 type authScope struct {
@@ -242,23 +243,23 @@ func (as *AuthServer) ParseRequest(req *http.Request) (*authRequest, error) {
 	return ar, nil
 }
 
-func (as *AuthServer) Authenticate(ar *authRequest) (bool, api.Labels, error) {
+func (as *AuthServer) Authenticate(ar *authRequest) (api.AuthenticateResult, error) {
 	for i, a := range as.authenticators {
-		result, labels, err := a.Authenticate(ar.Account, ar.Password)
-		glog.V(2).Infof("Authn %s %s -> %t, %+v, %v", a.Name(), ar.Account, result, labels, err)
+		res, err := a.Authenticate(ar.Account, ar.Password)
+		glog.V(2).Infof("Authn %s %s -> %+v, %v", a.Name(), ar.Account, res, err)
 		if err != nil {
 			if errors.Is(err, api.NoMatch) {
 				continue
 			}
 			err = fmt.Errorf("authn #%d returned error: %w", i+1, err)
 			glog.Errorf("%s: %s", ar, err)
-			return false, nil, err
+			return api.AuthenticateResult{}, err
 		}
-		return result, labels, nil
+		return res, nil
 	}
 	// Deny by default.
 	glog.Warningf("%s did not match any authn rule", ar)
-	return false, nil, nil
+	return api.AuthenticateResult{}, nil
 }
 
 func (as *AuthServer) authorizeScope(ai *api.AuthRequestInfo) ([]string, error) {
@@ -284,13 +285,14 @@ func (as *AuthServer) Authorize(ar *authRequest) ([]authzResult, error) {
 	ares := []authzResult{}
 	for _, scope := range ar.Scopes {
 		ai := &api.AuthRequestInfo{
-			Account: ar.Account,
-			Type:    scope.Type,
-			Name:    scope.Name,
-			Service: ar.Service,
-			IP:      ar.RemoteIP,
-			Actions: scope.Actions,
-			Labels:  ar.Labels,
+			Account:           ar.Account,
+			Type:              scope.Type,
+			Name:              scope.Name,
+			Service:           ar.Service,
+			IP:                ar.RemoteIP,
+			Actions:           scope.Actions,
+			Labels:            ar.Labels,
+			AuthenticatorData: ar.AuthenticatorData,
 		}
 		actions, err := as.authorizeScope(ai)
 		if err != nil {
@@ -393,7 +395,7 @@ func (as *AuthServer) doAuth(rw http.ResponseWriter, req *http.Request) {
 	}
 	glog.V(2).Infof("Auth request: %+v", ar)
 	{
-		authnResult, labels, err := as.Authenticate(ar)
+		authnRes, err := as.Authenticate(ar)
 		if err != nil {
 			var authFailed *api.AuthFailed
 			if errors.As(err, &authFailed) {
@@ -405,13 +407,14 @@ func (as *AuthServer) doAuth(rw http.ResponseWriter, req *http.Request) {
 			http.Error(rw, fmt.Sprintf("Authentication failed (%s)", err), http.StatusInternalServerError)
 			return
 		}
-		if !authnResult {
+		if !authnRes.Authenticated {
 			glog.Warningf("Auth failed: %s", *ar)
 			rw.Header()["WWW-Authenticate"] = []string{fmt.Sprintf(`Basic realm="%s"`, as.config.Token.Issuer)}
 			http.Error(rw, "Auth failed.", http.StatusUnauthorized)
 			return
 		}
-		ar.Labels = labels
+		ar.Labels = authnRes.Labels
+		ar.AuthenticatorData = authnRes.Data
 	}
 	if len(ar.Scopes) > 0 {
 		ares, err = as.Authorize(ar)

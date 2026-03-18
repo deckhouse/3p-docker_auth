@@ -112,9 +112,9 @@ func NewKubernetesAuth(config *k8s.AuthConfig) (*KubernetesAuth, error) {
 	return &KubernetesAuth{cfg: config, client: cs, tokenAuthenticator: cachingAuth}, nil
 }
 
-func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString) (bool, api.Labels, error) {
+func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString) (api.AuthenticateResult, error) {
 	if user != ka.cfg.UserName || password == "" {
-		return false, nil, api.NoMatch
+		return api.AuthenticateResult{}, api.NoMatch
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), ka.cfg.Limits.RequestTimeout)
@@ -123,27 +123,22 @@ func (ka *KubernetesAuth) Authenticate(user string, password api.PasswordString)
 	authResp, ok, err := ka.tokenAuthenticator.AuthenticateToken(ctx, string(password))
 	if err != nil {
 		if errors.Is(err, k8s.ErrTokenNotAuthenticated) {
-			return false, nil, api.NewAuthFailed(err)
+			return api.AuthenticateResult{}, api.NewAuthFailed(err)
 		}
 
 		glog.Errorf("k8s token authenticator error: %v", err)
-		return false, nil, err
+		return api.AuthenticateResult{}, err
 	}
 
 	if !ok || authResp == nil || authResp.User == nil {
-		return false, nil, api.WrongPass
+		return api.AuthenticateResult{}, api.WrongPass
 	}
 
 	userInfo := k8s.UserInfoFromUser(authResp.User)
-	labels := userInfo.ToLabels()
-
-	// Set standard "groups" label like other auth methods
-	if len(userInfo.Groups) > 0 {
-		labels["groups"] = userInfo.Groups
-	}
+	userInfo.BearerToken = string(password)
 
 	glog.V(1).Infof("Kubernetes authn success: %s", userInfo.Name)
-	return true, labels, nil
+	return api.AuthenticateResult{Authenticated: true, Labels: userInfo.ToLabels(), Data: userInfo}, nil
 }
 
 func (ka *KubernetesAuth) Stop() {}
