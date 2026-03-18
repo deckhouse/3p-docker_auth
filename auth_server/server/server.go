@@ -29,7 +29,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/casbin/casbin/v2"
 	"github.com/cesanta/glog"
 	"github.com/docker/distribution/registry/auth/token"
 
@@ -81,17 +80,6 @@ func NewAuthServer(c *Config) (*AuthServer, error) {
 			return nil, err
 		}
 		as.authorizers = append(as.authorizers, pluginAuthz)
-	}
-	if c.CasbinAuthz != nil {
-		enforcer, err := casbin.NewEnforcer(c.CasbinAuthz.ModelFilePath, c.CasbinAuthz.PolicyFilePath)
-		if err != nil {
-			return nil, err
-		}
-		casbinAuthz, err := authz.NewCasbinAuthorizer(enforcer)
-		if err != nil {
-			return nil, err
-		}
-		as.authorizers = append(as.authorizers, casbinAuthz)
 	}
 	if c.KubernetesAuth != nil {
 		ka, err := authn.NewKubernetesAuth(c.KubernetesAuth)
@@ -386,7 +374,7 @@ func (as *AuthServer) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (as *AuthServer) doIndex(rw http.ResponseWriter, req *http.Request) {
+func (as *AuthServer) doIndex(rw http.ResponseWriter, _ *http.Request) {
 	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(rw, "<h1>%s</h1>\n", as.config.Token.Issuer)
 }

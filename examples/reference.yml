@@ -242,11 +242,6 @@ acl:
     comment: "If you are part of the admin group you can push"
   # Access is denied by default.
 
-# (optioinal) Use casbin to verify permission
-casbin_authz:
-  model_path: "path/to/model"
-  policy_path: "path/to/csv"
-
 # User written authorization plugin - call a user written program to authorize user.
 # *authz.AuthRequestInfo is passed to the plugin and expects an authorized set of actions or an error.
 # return the set of authorized actions is the user is authorized. Otherwise return nil

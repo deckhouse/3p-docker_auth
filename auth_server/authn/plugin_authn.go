@@ -57,7 +57,6 @@ func (c *PluginAuthnConfig) Validate() error {
 }
 
 type PluginAuthn struct {
-	cfg   *PluginAuthnConfig
 	Authn api.Authenticator
 }
 

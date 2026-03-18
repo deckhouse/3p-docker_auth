@@ -111,7 +111,7 @@ kubernetes_auth:
 
 **When authorization is NOT enabled (authz section omitted):**
 - Only authentication is performed via TokenReview
-- Authorization must be handled by other methods (ACL rules, Casbin, plugin authz, etc.)
+- Authorization must be handled by other methods (ACL rules, plugin authz, etc.)
 - Kubernetes RBAC is not checked for registry access
 
 **Note:** You can use Kubernetes authentication with traditional ACL-based authorization by omitting the `authz` section and configuring ACL rules instead.

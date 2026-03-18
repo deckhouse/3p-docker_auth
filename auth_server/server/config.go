@@ -26,8 +26,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math/big"
+	"os"
 	"strings"
 
 	"github.com/docker/libtrust"
@@ -46,7 +46,6 @@ type Config struct {
 	PluginAuthn    *authn.PluginAuthnConfig       `yaml:"plugin_authn,omitempty"`
 	ACL            authz.ACL                      `yaml:"acl,omitempty"`
 	PluginAuthz    *authz.PluginAuthzConfig       `yaml:"plugin_authz,omitempty"`
-	CasbinAuthz    *authz.CasbinAuthzConfig       `yaml:"casbin_authz,omitempty"`
 }
 
 type ServerConfig struct {
@@ -124,9 +123,6 @@ var TLSVersionValues = map[string]uint16{
 	"TLS11": tls.VersionTLS11,
 	"TLS12": tls.VersionTLS12,
 	"TLS13": tls.VersionTLS13,
-	// Deprecated: SSLv3 is cryptographically broken, and will be
-	// removed in Go 1.14. See golang.org/issue/32716.
-	"SSL30": tls.VersionSSL30,
 }
 
 // TLSCurveIDValues maps CurveID names as strings to the actual values in the
@@ -172,7 +168,7 @@ func validate(c *Config) error {
 		}
 	}
 	hasK8sAuthz := c.KubernetesAuth != nil && c.KubernetesAuth.Authz != nil
-	if c.ACL == nil && c.PluginAuthz == nil && c.CasbinAuthz == nil && !hasK8sAuthz {
+	if c.ACL == nil && c.PluginAuthz == nil && !hasK8sAuthz {
 		return errors.New("ACL is empty, this is probably a mistake. Use an empty list if you really want to deny all actions")
 	}
 
@@ -217,7 +213,7 @@ func loadCertAndKey(certFile string, keyFile string) (pk libtrust.PublicKey, prk
 }
 
 func LoadConfig(fileName string) (*Config, error) {
-	contents, err := ioutil.ReadFile(fileName)
+	contents, err := os.ReadFile(fileName)
 	if err != nil {
 		return nil, fmt.Errorf("could not read %s: %s", fileName, err)
 	}

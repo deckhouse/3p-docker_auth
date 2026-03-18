@@ -20,7 +20,6 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
-	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -196,11 +195,12 @@ func (rs *RestartableServer) WatchConfig() {
 				needRestart = false
 			}
 		case ev := <-w.Events:
-			if ev.Op == fsnotify.Remove {
+			switch ev.Op {
+			case fsnotify.Remove:
 				glog.Warningf("Config file disappeared, serving continues")
 				w.Remove(rs.configFile)
 				watching, needRestart = false, false
-			} else if ev.Op == fsnotify.Write {
+			case fsnotify.Write:
 				needRestart = true
 			}
 		case s := <-stopSignals:
@@ -230,7 +230,6 @@ func (rs *RestartableServer) MaybeRestart() {
 
 func main() {
 	flag.Parse()
-	rand.Seed(time.Now().UnixNano())
 	glog.CopyStandardLogTo("INFO")
 
 	glog.Infof("docker_auth %s build %s", Version, BuildID)

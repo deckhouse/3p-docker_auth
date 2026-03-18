@@ -17,7 +17,6 @@ Supported authentication methods:
 
 Supported authorization methods:
  * Static ACL
- * Casbin (`casbin_authz`)
  * Authorization plugin (`plugin_authz`)
  * Kubernetes RBAC (optional, with `kubernetes_auth.authz`)
 

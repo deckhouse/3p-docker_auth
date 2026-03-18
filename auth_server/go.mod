@@ -4,7 +4,6 @@ go 1.25.0
 
 require (
 	github.com/bmatcuk/doublestar/v4 v4.6.1
-	github.com/casbin/casbin/v2 v2.134.0
 	github.com/cesanta/glog v0.0.0-20150527111657-22eb27a0ae19
 	github.com/deckarep/golang-set v1.8.0
 	github.com/docker/distribution v2.8.3+incompatible
@@ -13,6 +12,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	golang.org/x/crypto v0.45.0
 	golang.org/x/sync v0.18.0
+	golang.org/x/text v0.31.0
 	gopkg.in/fsnotify.v1 v1.4.7
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.31.14
@@ -24,7 +24,6 @@ require (
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
-	github.com/casbin/govaluate v1.3.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -71,7 +70,6 @@ require (
 	golang.org/x/oauth2 v0.33.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/term v0.37.0 // indirect
-	golang.org/x/text v0.31.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250818200422-3122310a409c // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251103181224-f26f9409b101 // indirect
