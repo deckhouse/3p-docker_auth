@@ -187,7 +187,7 @@ func validate(c *Config) error {
 	}
 	if c.KubernetesAuth != nil {
 		k8s.ApplyDefaults(c.KubernetesAuth)
-		if err := c.KubernetesAuth.Validate(); err != nil {
+		if err := c.KubernetesAuth.Validate("kubernetes_auth"); err != nil {
 			return err
 		}
 	}

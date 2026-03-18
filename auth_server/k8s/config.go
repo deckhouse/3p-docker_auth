@@ -17,6 +17,7 @@
 package k8s
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -134,17 +135,11 @@ func (c *AuthzConfig) NeedsNamespaceCheck(actions []string) bool {
 //   - Resource: Kubernetes resource name (plural form)
 //
 // Returns an error if validation fails, with the error message prefixed by configKey.
-func (c AuthzConfig) Validate(configKey string) error {
-	err := validation.ValidateStruct(&c,
+func (c AuthzConfig) Validate() error {
+	return validation.ValidateStruct(&c,
 		validation.Field(&c.APIGroup, validation.Required),
 		validation.Field(&c.Resource, validation.Required),
 	)
-
-	if err != nil {
-		return fmt.Errorf("%v validation error: %w", configKey, err)
-	}
-
-	return nil
 }
 
 // FilterRules returns rules that match the given API group and resource.
@@ -208,10 +203,29 @@ func ApplyDefaults(c *AuthConfig) {
 }
 
 // Validate validates the AuthConfig and the nested Authz configuration if present.
-func (c AuthConfig) Validate() error {
-	return validation.ValidateStruct(&c,
+func (c AuthConfig) Validate(configKey string) error {
+	err := validation.ValidateStruct(&c,
 		validation.Field(&c.Authz),
 	)
+
+	var vErr validation.Errors
+
+	if err != nil {
+		if errors.As(err, &vErr) {
+			rErr := make(validation.Errors)
+
+			for name, err := range vErr {
+				name = configKey + "." + name
+				rErr[name] = err
+			}
+
+			return rErr
+		}
+
+		return fmt.Errorf("%v validation error: %w", configKey, err)
+	}
+
+	return nil
 }
 
 // BuildRestConfig creates and configures a Kubernetes REST client configuration.

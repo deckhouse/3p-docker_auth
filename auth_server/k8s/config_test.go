@@ -17,6 +17,7 @@
 package k8s
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -61,7 +62,7 @@ func TestAuthzConfig_Validate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.cfg.Validate("authz")
+			err := tt.cfg.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("AuthzConfig.Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -207,10 +208,10 @@ func TestAuthzConfig_FilterRules(t *testing.T) {
 			wantAPIG: "*",
 		},
 		{
-			name:     "wildcard resource matches",
-			cfg:      &AuthzConfig{APIGroup: "registry.example.com", Resource: "repositories"},
-			rules:    Rules{ruleWildcardResource},
-			wantLen:  1,
+			name:    "wildcard resource matches",
+			cfg:     &AuthzConfig{APIGroup: "registry.example.com", Resource: "repositories"},
+			rules:   Rules{ruleWildcardResource},
+			wantLen: 1,
 		},
 		{
 			name: "case-insensitive API group in config",
@@ -238,9 +239,9 @@ func TestAuthzConfig_FilterRules(t *testing.T) {
 			wantLen: 1,
 		},
 		{
-			name: "multiple rules - only matching kept",
-			cfg:  &AuthzConfig{APIGroup: "registry.example.com", Resource: "repositories"},
-			rules: Rules{ruleOtherGroup, ruleRegistryRepos, ruleOtherResource},
+			name:    "multiple rules - only matching kept",
+			cfg:     &AuthzConfig{APIGroup: "registry.example.com", Resource: "repositories"},
+			rules:   Rules{ruleOtherGroup, ruleRegistryRepos, ruleOtherResource},
 			wantLen: 1,
 		},
 		{
@@ -295,12 +296,14 @@ func TestApplyDefaults(t *testing.T) {
 }
 
 func TestAuthConfig_Validate(t *testing.T) {
+	const configKey = "k8s"
 	tests := []struct {
 		name          string
 		cfg           *AuthConfig
 		applyDefaults bool
 		check         func(t *testing.T, c *AuthConfig)
 		wantErr       bool
+		errContains   string
 	}{
 		{
 			name:          "sets defaults when zero",
@@ -332,7 +335,7 @@ func TestAuthConfig_Validate(t *testing.T) {
 					FailureTTL time.Duration `yaml:"failure_ttl,omitempty"`
 				}{
 					SuccessTTL: 2 * time.Minute,
-					FailureTTL:  1 * time.Minute,
+					FailureTTL: 1 * time.Minute,
 				},
 				Limits: struct {
 					QPS            float32       `yaml:"qps,omitempty"`
@@ -367,15 +370,43 @@ func TestAuthConfig_Validate(t *testing.T) {
 			check:   nil,
 			wantErr: false,
 		},
+		{
+			name:          "nil Authz",
+			applyDefaults: false,
+			cfg:           &AuthConfig{Authz: nil},
+			check:         nil,
+			wantErr:       false,
+		},
+		{
+			name:          "invalid Authz missing APIGroup",
+			applyDefaults: false,
+			cfg: &AuthConfig{
+				Authz: &AuthzConfig{APIGroup: "", Resource: "repositories"},
+			},
+			wantErr:     true,
+			errContains: configKey,
+		},
+		{
+			name:          "invalid Authz missing Resource",
+			applyDefaults: false,
+			cfg: &AuthConfig{
+				Authz: &AuthzConfig{APIGroup: "registry.example.com", Resource: ""},
+			},
+			wantErr:     true,
+			errContains: configKey,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.applyDefaults {
 				ApplyDefaults(tt.cfg)
 			}
-			err := tt.cfg.Validate()
+			err := tt.cfg.Validate(configKey)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("AuthConfig.Validate() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("AuthConfig.Validate(%q) error = %v, wantErr %v", configKey, err, tt.wantErr)
+			}
+			if tt.errContains != "" && err != nil && !strings.Contains(err.Error(), tt.errContains) {
+				t.Errorf("AuthConfig.Validate() error = %q, want substring %q", err, tt.errContains)
 			}
 			if tt.check != nil && err == nil {
 				tt.check(t, tt.cfg)
