@@ -30,7 +30,6 @@ import (
 	"time"
 
 	"github.com/cesanta/glog"
-	"golang.org/x/crypto/acme/autocert"
 	fsnotify "gopkg.in/fsnotify.v1"
 
 	"github.com/cesanta/docker_auth/auth_server/server"
@@ -116,17 +115,6 @@ func ServeOnce(c *server.Config, cf string) (*server.AuthServer, *http.Server) {
 		if err != nil {
 			glog.Exitf("Failed to load certificate and key: %s", err)
 		}
-	} else if c.Server.LetsEncrypt.Email != "" {
-		m := &autocert.Manager{
-			Email:  c.Server.LetsEncrypt.Email,
-			Cache:  autocert.DirCache(c.Server.LetsEncrypt.CacheDir),
-			Prompt: autocert.AcceptTOS,
-		}
-		if c.Server.LetsEncrypt.Host != "" {
-			m.HostPolicy = autocert.HostWhitelist(c.Server.LetsEncrypt.Host)
-		}
-		glog.Infof("Using LetsEncrypt, host %q, email %q", c.Server.LetsEncrypt.Host, c.Server.LetsEncrypt.Email)
-		tlsConfig.GetCertificate = m.GetCertificate
 	} else {
 		glog.Warning("Running without TLS")
 		tlsConfig = nil

@@ -28,7 +28,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/big"
-	"os"
 	"strings"
 
 	"github.com/docker/libtrust"
@@ -62,17 +61,10 @@ type ServerConfig struct {
 	TLSMinVersion       string            `yaml:"tls_min_version,omitempty"`
 	TLSCurvePreferences []string          `yaml:"tls_curve_preferences,omitempty"`
 	TLSCipherSuites     []string          `yaml:"tls_cipher_suites,omitempty"`
-	LetsEncrypt         LetsEncryptConfig `yaml:"letsencrypt,omitempty"`
 
 	publicKey  libtrust.PublicKey
 	privateKey libtrust.PrivateKey
 	sigAlg     string
-}
-
-type LetsEncryptConfig struct {
-	Host     string `yaml:"host,omitempty"`
-	Email    string `yaml:"email,omitempty"`
-	CacheDir string `yaml:"cache_dir,omitempty"`
 }
 
 type TokenConfig struct {
@@ -274,18 +266,6 @@ func LoadConfig(fileName string) (*Config, error) {
 		c.Token.keyID = getRFC7638Thumbprint(c.Token.publicKey.CryptoPublicKey())
 	} else {
 		c.Token.keyID = c.Token.publicKey.KeyID()
-	}
-
-	if !serverConfigured && c.Server.LetsEncrypt.Email != "" {
-		if c.Server.LetsEncrypt.CacheDir == "" {
-			return nil, fmt.Errorf("server.letsencrypt.cache_dir is required")
-		}
-		// We require that LetsEncrypt is an existing directory, because we really don't want it
-		// to be misconfigured and obtained certificates to be lost.
-		fi, err := os.Stat(c.Server.LetsEncrypt.CacheDir)
-		if err != nil || !fi.IsDir() {
-			return nil, fmt.Errorf("server.letsencrypt.cache_dir (%s) does not exist or is not a directory", c.Server.LetsEncrypt.CacheDir)
-		}
 	}
 
 	return c, nil

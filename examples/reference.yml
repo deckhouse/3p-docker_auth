@@ -54,19 +54,8 @@ server: # Server settings.
   #   - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
   #   - 0xc014
   #   - 0xc00a
-
-  # Use LetsEncrypt (https://letsencrypt.org/) to automatically obtain and maintain a certificate.
-  # Note that this only applies to server TLS certificate, this certificate will not be used for tokens
-  letsencrypt:
-    # Email is required. It will be used to register with LetsEncrypt.
-    email: webmaster@example.org
-    # Cache directory, where certificates issued by LE will be stored. Must exist.
-    # It is recommended to make it a volume mount so it persists across restarts.
-    cache_dir: /data/sslcache
-    # Normally LetsEncrypt will obtain a certificate for whichever host the client is connecting to.
-    # With this option, you can limit it to a specific host name.
-    # host: "docker.example.org"
-  # If neither certificate+key or letsencrypt are configured, the listener does not use TLS.
+  #
+  # If certificate and key are omitted, the listener does not use TLS.
 
   # Take client's address from the specified HTTP header instead of connection.
   # May be useful if the server is behind a proxy or load balancer.
