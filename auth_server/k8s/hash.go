@@ -1,5 +1,5 @@
 /*
-   Copyright 2020 Cesanta Software Ltd.
+   Copyright 2026 Flant
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -14,9 +14,33 @@
    limitations under the License.
 */
 
-package authn
+package k8s
 
-import "embed"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+)
 
-//go:embed data/*
-var static embed.FS
+func ComputeHash(values ...any) (string, error) {
+	if len(values) == 0 {
+		return "", nil
+	}
+
+	hash := sha256.New()
+
+	for _, value := range values {
+		buf, err := json.Marshal(value)
+		if err != nil {
+			return "", fmt.Errorf("marshal error: %w", err)
+		}
+
+		hash.Write(buf)
+	}
+
+	hashBytes := hash.Sum([]byte{})
+	ret := hex.EncodeToString(hashBytes)
+
+	return ret, nil
+}

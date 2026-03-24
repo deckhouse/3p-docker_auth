@@ -1,5 +1,3 @@
-//+build ignore
-
 /*
    Copyright 2021 Cesanta Software Ltd.
 
@@ -16,6 +14,7 @@
    limitations under the License.
 */
 
+// Genversion prints version and build id (tab-separated) from the current git checkout.
 package main
 
 import (
@@ -25,7 +24,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cooldrip/cstrftime" // strftime implemented with cgo
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 )
@@ -41,7 +39,7 @@ func main() {
 	}
 
 	t := time.Now()
-	ts := cstrftime.Format("%Y%m%d-%H%M%S", t)
+	ts := t.Format("20060102-150405")
 
 	head, err := r.Head()
 	if err != nil {
@@ -84,7 +82,7 @@ func main() {
 
 	buildId := fmt.Sprintf("%s/%s@%s%s", ts, branch_or_tag, short, is_dirty)
 
-	version := cstrftime.Format("%Y%m%d%H", t)
+	version := t.Format("2006010215")
 	if is_dirty != "" || branch_or_tag == "?" {
 		version = branch_or_tag
 	}

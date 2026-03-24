@@ -1,7 +1,8 @@
 MAKEFLAGS += --warn-undefined-variables
 IMAGE ?= cesanta/docker_auth
-VERSION ?= $(shell go run ./gen_version.go | awk '{print $$1}')
-BUILD_ID ?= $(shell go run ./gen_version.go | awk '{print $$2}')
+AUTH_SERVER := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+VERSION ?= $(shell cd $(AUTH_SERVER)/.build/genversion && go run . | awk '{print $$1}')
+BUILD_ID ?= $(shell cd $(AUTH_SERVER)/.build/genversion && go run . | awk '{print $$2}')
 
 .PHONY: %
 

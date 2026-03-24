@@ -57,11 +57,10 @@ func (c *PluginAuthnConfig) Validate() error {
 }
 
 type PluginAuthn struct {
-	cfg   *PluginAuthnConfig
 	Authn api.Authenticator
 }
 
-func (c *PluginAuthn) Authenticate(user string, password api.PasswordString) (bool, api.Labels, error) {
+func (c *PluginAuthn) Authenticate(user string, password api.PasswordString) (api.AuthenticateResult, error) {
 	// use the plugin
 	return c.Authn.Authenticate(user, password)
 }

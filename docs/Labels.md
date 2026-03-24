@@ -2,7 +2,7 @@
 
 Labels can be used to reduce the number ACLS needed in large, complex installations.
 
-Labels are only supported for certain auth backends. As of right now labels are only supported when using Static Authentication or Mongo Authentication.
+Labels are supported when the authenticator provides them (e.g. static users, `plugin_authn`, Kubernetes token auth).
 
 ## Label Placeholders
 
@@ -114,4 +114,4 @@ Example User with full-access to `test/*` and read-only access to `prod/*`
 
 ```
 
-If you wanted to grant more access to test-user in the future you would simply add to the `full-access` or `read-only-access` labels list. This works best when paired with a dynamic authentication method that returns labels. As of v1.3 that includes mongo and ext_auth
+If you wanted to grant more access to test-user in the future you would simply add to the `full-access` or `read-only-access` labels list. This works best when paired with a dynamic authentication method that returns labels (e.g. `plugin_authn`, Kubernetes auth).

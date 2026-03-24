@@ -20,7 +20,6 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
-	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -30,7 +29,6 @@ import (
 	"time"
 
 	"github.com/cesanta/glog"
-	"golang.org/x/crypto/acme/autocert"
 	fsnotify "gopkg.in/fsnotify.v1"
 
 	"github.com/cesanta/docker_auth/auth_server/server"
@@ -116,17 +114,6 @@ func ServeOnce(c *server.Config, cf string) (*server.AuthServer, *http.Server) {
 		if err != nil {
 			glog.Exitf("Failed to load certificate and key: %s", err)
 		}
-	} else if c.Server.LetsEncrypt.Email != "" {
-		m := &autocert.Manager{
-			Email:  c.Server.LetsEncrypt.Email,
-			Cache:  autocert.DirCache(c.Server.LetsEncrypt.CacheDir),
-			Prompt: autocert.AcceptTOS,
-		}
-		if c.Server.LetsEncrypt.Host != "" {
-			m.HostPolicy = autocert.HostWhitelist(c.Server.LetsEncrypt.Host)
-		}
-		glog.Infof("Using LetsEncrypt, host %q, email %q", c.Server.LetsEncrypt.Host, c.Server.LetsEncrypt.Email)
-		tlsConfig.GetCertificate = m.GetCertificate
 	} else {
 		glog.Warning("Running without TLS")
 		tlsConfig = nil
@@ -208,11 +195,12 @@ func (rs *RestartableServer) WatchConfig() {
 				needRestart = false
 			}
 		case ev := <-w.Events:
-			if ev.Op == fsnotify.Remove {
+			switch ev.Op {
+			case fsnotify.Remove:
 				glog.Warningf("Config file disappeared, serving continues")
 				w.Remove(rs.configFile)
 				watching, needRestart = false, false
-			} else if ev.Op == fsnotify.Write {
+			case fsnotify.Write:
 				needRestart = true
 			}
 		case s := <-stopSignals:
@@ -242,7 +230,6 @@ func (rs *RestartableServer) MaybeRestart() {
 
 func main() {
 	flag.Parse()
-	rand.Seed(time.Now().UnixNano())
 	glog.CopyStandardLogTo("INFO")
 
 	glog.Infof("docker_auth %s build %s", Version, BuildID)

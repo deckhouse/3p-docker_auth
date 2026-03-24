@@ -54,19 +54,8 @@ server: # Server settings.
   #   - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
   #   - 0xc014
   #   - 0xc00a
-
-  # Use LetsEncrypt (https://letsencrypt.org/) to automatically obtain and maintain a certificate.
-  # Note that this only applies to server TLS certificate, this certificate will not be used for tokens
-  letsencrypt:
-    # Email is required. It will be used to register with LetsEncrypt.
-    email: webmaster@example.org
-    # Cache directory, where certificates issued by LE will be stored. Must exist.
-    # It is recommended to make it a volume mount so it persists across restarts.
-    cache_dir: /data/sslcache
-    # Normally LetsEncrypt will obtain a certificate for whichever host the client is connecting to.
-    # With this option, you can limit it to a specific host name.
-    # host: "docker.example.org"
-  # If neither certificate+key or letsencrypt are configured, the listener does not use TLS.
+  #
+  # If certificate and key are omitted, the listener does not use TLS.
 
   # Take client's address from the specified HTTP header instead of connection.
   # May be useful if the server is behind a proxy or load balancer.
@@ -103,256 +92,60 @@ users:
     password: "$2y$05$WuwBasGDAgr.QCbGIjKJaep4dhxeai9gNZdmBnQXqpKly57oNutya" # 123
   "": {} # Allow anonymous (no "docker login") access.
 
-# Google authentication.
-# ==! NB: DO NOT ENTER YOUR GOOGLE PASSWORD AT "docker login". IT WILL NOT WORK.
-# Instead, Auth server maintains a database of Google authentication tokens.
-# Go to the server's port as HTTPS with your browser and follow the "Login with Google account" link.
-# Once signed in, you will get a throw-away password which you can use for Docker login.
-google_auth:
-  domain: "example.com" # Optional. If set, only logins from this domain are accepted.
-  # client_id and client_secret for API access. Required.
-  # Follow instructions here: https://developers.google.com/identity/sign-in/web/devconsole-project
-  # NB: Make sure JavaScript origins are configured correctly, and that third-party
-  # cookies are not blocked in the browser being used to login.
-  client_id: "1223123456-somethingsomething.apps.googleusercontent.com"
-  # Either client_secret or client_secret_file is required. Use client_secret_file if you don't
-  # want to have sensitive information checked in.
-  # client_secret: "verysecret"
-  client_secret_file: "/path/to/client_secret.txt"
-  # Where to store server tokens. Required.
-  level_token_db:
-    path: "/somewhere/to/put/google_tokens.ldb"
-    # Optional token hash cost for bcrypt hashing
-    # token_hash_cost: 5
-  # How long to wait when talking to Google servers. Optional.
-  http_timeout: "10s"
-
-# GitHub authentication.
-# ==! NB: DO NOT ENTER YOUR GITHUB PASSWORD AT "docker login". IT WILL NOT WORK.
-# Instead, Auth server maintains a database of GitHub authentication tokens.
-# Go to the server's port as HTTPS with your browser and follow the "Login with GitHub account" link.
-# Once signed in, you will get a throw-away password which you can use for Docker login.
-github_auth:
-  organization: "acme" # Optional. If set, only logins from this organization are accepted.
-  # client_id and client_secret for API access. Required.
-  # You can register a new application here: https://github.com/settings/developers
-  # NB: Make sure JavaScript origins are configured correctly, and that third-party
-  # cookies are not blocked in the browser being used to login.
-  client_id: "1223123456"
-  # Either client_secret or client_secret_file is required. Use client_secret_file if you don't
-  # want to have sensitive information checked in.
-  # client_secret: "verysecret"
-  client_secret_file: "/path/to/client_secret.txt"
-  # Either level_token_db file for storing of server tokens.
-  level_token_db:
-    path: "/somewhere/to/put/github_tokens.ldb"
-    # Optional token hash cost for bcrypt hashing
-    # token_hash_cost: 5
-  # or google cloud storage for storing of the sensitive information,
-  gcs_token_db:
-    bucket: "tokenBucket"
-    client_secret_file: "/path/to/client_secret.json"
-  # or Redis,
-  redis_token_db:
-    redis_options:
-      # with a single instance,
-      addr: localhost:6379
-    redis_cluster_options:
-      # or in the cluster mode.
-      addrs: ["localhost:7000"]
-  # How long to wait when talking to GitHub servers. Optional.
-  http_timeout: "10s"
-  # How long to wait before revalidating the GitHub token. Optional.
-  revalidate_after: "1h"
-  # The Github Web URI in case you are using Github Enterprise.
-  # Includes the protocol, without trailing slash. Optional - defaults to: https://github.com
-  github_web_uri: "https://github.acme.com"
-  # The Github API URI in case you are using Github Enterprise.
-  # Includes the protocol, without trailing slash. - defaults to: https://api.github.com
-  github_api_uri: "https://github.acme.com/api/v3"
-  # Set an URL to display in the `docker login` command when succesfully authenticated. Optional.
-  registry_url: localhost:5000
-
-# OpenID Connect authentication
-# ==! NB: DO NOT ENTER YOUR OIDC PASSWORD AT "docker login". IT WILL NOT WORK.
-# Instead, Auth server maintains a database of OIDC authentication tokens.
-# Go to the server's port as HTTPS with your browser and follow the "Login with OIDC account" link.
-# Once signed in, you will get a throw-away password which you can use for Docker login.
-oidc_auth:
-  # --- required ---
-  # The issuer URL of your OIDC provider. It has to be extendable with /.well-known/openid-configuration to request all
-  # OIDC endpoints for token and authorization requests
-  issuer: "my_issuer_url"
-  # The redirect URI which is registered for this client at your OIDC provider. It has to end with /oidc_auth.
-  redirect_url: "my_redirect_uri/oidc_auth"
-  # The client id and client secret of the client that is registered at your OIDC provider for docker_auth
-  client_id: "be4ut1fu1-cl13n7-1d"
-  client_secret: "be4ut1fu1-cl13n7-s3cr37"
-  # you can also give the client_secret in a file. Either a client_secret or a client_secret_file has to be provided
-  # client_secret_file: "/path/to/client_secret.txt"
-  #
-  # a file in which the tokens should be stored. Does not have to exist, it will be generated in this case
-  level_token_db:
-    path: "/path/to/tokens.ldb"
-    # Optional token hash cost for bcrypt hashing
-    # token_hash_cost: 5
-  # --- optional ---
-  # How long to wait when talking to the OIDC provider.
-  http_timeout: "10s"
-  # the url of the registry where you want to login. Is used to present the full docker login command.
-  registry_url: "url_of_my_beautiful_docker_registry"
-  # The claim to use for the username.
-  # Default: email
-  user_claim: email
-  # String array claims that will be used as labels.
-  label_claims:
-    - groups
-  # Default: [openid, email]
-  scopes:
-    - openid
-    - email
-
 # Kubernetes authentication via Kubernetes TokenReview API.
 # The password from `docker login` is treated as a Bearer token and validated
 # using Kubernetes TokenReview. Results can be cached to reduce load on the API server.
+# Invalid or unauthenticated tokens result in HTTP 401 with a message (e.g. "Auth failed: ...").
+#
+# Note: When using Kubernetes auth, the docker login username must be "token"
+# (or the value specified in username) and the password must be a valid Kubernetes bearer token.
 kubernetes_auth:
-  # Optional path to kubeconfig. If empty, in-cluster config is used.
+  # Optional path to kubeconfig. If empty or not specified, in-cluster config is used
+  # (service account token and CA certificate mounted in the pod).
   # kubeconfig: "/path/to/kubeconfig"
-  # Limits for Kubernetes calls (client-go throttling + request timeout)
+
+  # Optional username that must be used for Kubernetes token authentication.
+  # Defaults to "token" if not specified.
+  # username: "token"
+
+  # Limits for outgoing TokenReview calls
   limits:
-    # How long to wait for the TokenReview call before timing out.
-    request_timeout: "5s"
-    # Optional client-go throttling for outgoing Kubernetes requests
-    # If qps/burst are <= 0, client-go defaults are used (QPS=5, Burst=10).
+    request_timeout: "5s"  # Timeout for individual API requests
+    # Optional client-go throttling for outgoing Kubernetes requests.
+    # QPS: If zero, DefaultQPS: 5 is used. If negative, throttling is disabled.
+    # Burst: If zero, DefaultBurst: 10 is used. Only relevant when QPS > 0.
     qps: 10
     burst: 20
-  # Cache settings for authentication results (success and failure)
+
+  # Cache settings for authentication results
   cache:
-    # TTL for successful/unsuccessful authentication results.
-    # If omitted or <= 0, defaults are used (2m for both).
-    success_ttl: "2m"
-    failure_ttl: "2m"
-  # Map k8s user groups/extra to labels for ACL matching
-  labels:
-    include_groups: true
-    include_extra: false
+    # TTL for successful authentication results (default: 5m, 0 disables caching)
+    success_ttl: "1m"
+    # TTL for failed authentication results (default: 30s, 0 disables caching)
+    failure_ttl: "30s"
 
-# Gitlab authentication.
-# ==! NB: DO NOT ENTER YOUR Gitlab PASSWORD AT "docker login". IT WILL NOT WORK.
-# Instead, Auth server maintains a database of Gitlab authentication tokens.
-# Go to the server's port as HTTPS with your browser and follow the "Login with Gitlab account" link.
-# Once signed in, you will get a throw-away password which you can use for Docker login.
-gitlab_auth:
-  client_id: "1223123456"
-  # Either client_secret or client_secret_file is required. Use client_secret_file if you don't
-  # want to have sensitive information checked in.
-  # client_secret: "verysecret"
-  client_secret_file: "/path/to/client_secret.txt"
-  # Either level_token_db file for storing of server tokens.
-  level_token_db:
-    path: "/somewhere/to/put/gitlab_tokens.ldb"
-    # Optional token hash cost for bcrypt hashing
-    # token_hash_cost: 5
-  # or google cloud storage for storing of the sensitive information,
-  gcs_token_db:
-    bucket: "tokenBucket"
-    client_secret_file: "/path/to/client_secret.json"
-  # or Redis,
-  redis_token_db:
-    redis_options:
-      # with a single instance,
-      addr: localhost:6379
-    redis_cluster_options:
-      # or in the cluster mode.
-      addrs: ["localhost:7000"]
-  # How long to wait when talking to GitLab servers. Optional.
-  http_timeout: "10s"
-  # How long to wait before revalidating the Gitlab token. Optional.
-  revalidate_after: "1h"
-  # Includes the protocol, without trailing slash. Optional - defaults to: https://gitlab.com
-  gitlab_web_uri: "https://gitlab.com"
-  # Includes the protocol, without trailing slash. - defaults to: https://gitlab.com/api/v4
-  gitlab_api_uri: "https://gitlab.com/api/v4"
-  # Set an URL to display in the `docker login` command when successfully authenticated. Optional.
-  registry_url: localhost:5000
-  # grant_type is used for the authentication purpose. Required.
-  grant_type: "authorization_code"
-  # Redirect uri is used for the authentication purpose. Must end with '/gitlab_auth' prefix. Required.
-  redirect_uri: "https://localhost:5001/gitlab_auth"
-
-# LDAP authentication.
-# Authentication is performed by first binding to the server, looking up the user entry
-# by using the specified filter, and then re-binding using the matched DN and the password provided.
-ldap_auth:
-  # Addr is the hostname:port or ip:port
-  addr: ldap.example.com:636
-  # Setup tls connection method to be
-  # "" or "none": the communication won't be encrypted
-  # "always": setup LDAP over SSL/TLS
-  # "starttls": sets StartTLS as the encryption method
-  tls: always
-  # set to true to allow insecure tls
-  insecure_tls_skip_verify: false
-  # set this to specify the ca certificate path
-  ca_certificate:
-  # In case bind DN and password is required for querying user information,
-  # specify them here. Plain text password is read from the file.
-  bind_dn:
-  bind_password_file:
-  # User query settings. ${account} is expanded from auth request
-  base: o=example.com
-  filter: (&(uid=${account})(objectClass=person))
-  # Labels can be mapped from LDAP attributes
-  labels:
-    # Add the user's title to a label called title
-    title:
-      attribute: title
-    # Add the user's memberOf values to a label called groups
-    groups:
-      attribute: memberOf
-      # Special handling to simplify the values to just the common name
-      parse_cn: true
-      # lower case the value
-      lower_case: true
-
-mongo_auth:
-  # Essentially all options are described here: https://godoc.org/gopkg.in/mgo.v2#DialInfo
-  dial_info:
-    # The MongoDB hostnames or IPs to connect to.
-    addrs: ["localhost"]
-    # The time to wait for a server to respond when first connecting and on
-    # follow up operations in the session. If timeout is zero, the call may
-    # block forever waiting for a connection to be established.
-    # (See https://golang.org/pkg/time/#ParseDuration for a format description.)
-    timeout: "10s"
-    # Database name that will be used on the MongoDB server.
-    database: "docker_auth"
-    # The username with which to connect to the MongoDB server.
-    username: ""
-    # Path to the text file with the password in it.
-    password_file: ""
-    # Enable TLS connection to MongoDB (only enable this if your server supports it)
-    enable_tls: false
-  # Name of the collection in which ACLs will be stored in MongoDB.
-  collection: "users"
-  # Unlike acl_mongo we don't cache the full user set. We just query mongo for
-  # an exact match for each authorization
-
-xorm_auth:
-  # the database type you'd like to connect to
-  database_type: "mysql"
-  # the connection string to connect to the database
-  conn_string: "username:password@/database_name?charset=utf8"
-
-# External authentication - call an external progam to authenticate user.
-# Username and password are passed to command's stdin and exit code is examined.
-# 0 - allow, 1 - deny, 2 - no match, other - error.
-# In case of success, if any output is returned, it is parsed as a JSON object.
-# The "labels" key may contain labels to be passed down to authz, where they can
-# be used in matching. See ext_auth.sh for an example.
-ext_auth:
-  command: "/usr/local/bin/my_auth" # Can be a relative path too; $PATH works.
-  args: ["--flag", "--more", "--flags"]
+  # Optional: Enable Kubernetes authorization (RBAC via SelfSubjectRulesReview).
+  # 
+  # To ENABLE authorization: Uncomment and configure the 'authz' section below.
+  # To DISABLE authorization: Omit or comment out the 'authz' section (use ACL rules instead).
+  #
+  # When enabled:
+  # - Maps docker actions (pull/push/delete) to k8s verbs for a CR in api_group/resource
+  # - Supports recursive globbing (e.g. "images/**") in RBAC resourceNames
+  # - Namespace is derived from the first segment of the repository name (e.g. "ns/image" -> "ns")
+  # - The remaining path is matched against RBAC resourceNames
+  # - Actions are mapped: pull->get, push->create, delete->delete
+  # - If ACL rules are also configured, both are evaluated (OR logic)
+  # - Optional namespace_check_verbs: when set, namespace existence is checked only for those actions
+  #
+  # authz:
+  #   # Required: Kubernetes API group for the custom resource
+  #   api_group: "registry.example.com"
+  #   # Required: Kubernetes resource name (plural form)
+  #   resource: "registries"
+  #   # Optional: Docker actions for which namespace existence is checked (e.g. push, delete).
+  #   # If empty or omitted, namespace existence is not checked.
+  #   namespace_check_verbs: ["push", "delete"]
 
 # User written authentication plugin - call a user written program to authenticate user.
 # Username of type string and password of authn.PasswordString is passed to the plugin
@@ -443,56 +236,11 @@ acl:
     comment: "Users can push to a project-tier/* that they are assigned to"
   - match: { labels: { "title": "Developer" } }
     actions: ["*"]
-    comment: "If you call yourself a developer you can do anything (this ACL is an example for LDAP labels as defined above)"
+    comment: "If you call yourself a developer you can do anything"
   - match: { labels: { "groups": "Admin" } }
     actions: ["push"]
-    comment: "If you are part of the admin group you can push. (this ACL is an example for LDAP labels as defined above)"
+    comment: "If you are part of the admin group you can push"
   # Access is denied by default.
-
-# (optional) Define to query ACL from a MongoDB server.
-acl_mongo:
-  # Essentially all options are described here: https://godoc.org/gopkg.in/mgo.v2#DialInfo
-  dial_info:
-    # The MongoDB hostnames or IPs to connect to.
-    addrs: ["localhost"]
-    # The time to wait for a server to respond when first connecting and on
-    # follow up operations in the session. If timeout is zero, the call may
-    # block forever waiting for a connection to be established.
-    # (See https://golang.org/pkg/time/#ParseDuration for a format description.)
-    timeout: "10s"
-    # Database name that will be used on the MongoDB server.
-    database: "docker_auth"
-    # The username with which to connect to the MongoDB server.
-    username: ""
-    # Path to the text file with the password in it.
-    password_file: ""
-    # Enable TLS connection to MongoDB (only enable this if your server supports it)
-    enable_tls: false
-  # Name of the collection in which ACLs will be stored in MongoDB.
-  collection: "acl"
-  # Specify how long an ACL remains valid before they will be fetched again from
-  # the MongoDB server.
-  # (See https://golang.org/pkg/time/#ParseDuration for a format description.)
-  cache_ttl: "1m"
-
-# (optional) Define to query ACL from a XORM.io database connection.
-acl_xorm:
-  # the database type you'd like to connect to
-  database_type: "mysql"
-  conn_string: "username:password@/database_name?charset=utf8"
-  cache_ttl: "1m"
-
-# (optioinal) Use casbin to verify permission
-casbin_authz:
-  model_path: "path/to/model"
-  policy_path: "path/to/csv"
-
-# External authorization - call an external progam to authorize user.
-# JSON of authz.AuthRequestInfo is passed to command's stdin and exit code is examined.
-# 0 - allow, 1 - deny, other - error.
-ext_authz:
-  command: "/usr/local/bin/my_authz" # Can be a relative path too; $PATH works.
-  args: ["--flag", "--more", "--flags"]
 
 # User written authorization plugin - call a user written program to authorize user.
 # *authz.AuthRequestInfo is passed to the plugin and expects an authorized set of actions or an error.

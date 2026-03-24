@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/cesanta/glog"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 
 	"github.com/cesanta/docker_auth/auth_server/api"
 )
@@ -136,8 +138,6 @@ func (aa *aclAuthorizer) Name() string {
 	return "static ACL"
 }
 
-type aclEntryJSON *ACLEntry
-
 func (e ACLEntry) String() string {
 	b, _ := json.Marshal(e)
 	return string(b)
@@ -166,13 +166,13 @@ func matchStringWithLabelPermutations(pp *string, s string, vars []string, label
 	// If basic matching fails then try with label permuations
 	if !matched {
 		// Take the labelMap and build the structure required for the cartesian library
-		var labelSets [][]interface{}
+		var labelSets [][]any
 		for placeholder, labels := range *labelMap {
 			// Don't bother generating perumations for placeholders not in match string
 			// Since the label permuations are a cartesian product this can have
 			// a huge impact on performance
 			if strings.Contains(*pp, placeholder) {
-				var labelSet []interface{}
+				var labelSet []any
 				for _, label := range labels {
 					labelSet = append(labelSet, []string{placeholder, label})
 				}
@@ -198,8 +198,8 @@ func matchStringWithLabelPermutations(pp *string, s string, vars []string, label
 	return matched
 }
 
-func IterWithContext(ctx context.Context, params ...[]interface{}) <-chan []interface{} {
-	c := make(chan []interface{})
+func IterWithContext(ctx context.Context, params ...[]any) <-chan []any {
+	c := make(chan []any)
 
 	if len(params) == 0 {
 		close(c)
@@ -209,19 +209,19 @@ func IterWithContext(ctx context.Context, params ...[]interface{}) <-chan []inte
 	go func() {
 		defer close(c) // Ensure the channel is closed when the goroutine exits
 
-		iterate(ctx, c, params[0], []interface{}{}, params[1:]...)
+		iterate(ctx, c, params[0], []any{}, params[1:]...)
 	}()
 
 	return c
 }
 
-func iterate(ctx context.Context, channel chan []interface{}, topLevel, result []interface{}, needUnpacking ...[]interface{}) {
+func iterate(ctx context.Context, channel chan []any, topLevel, result []any, needUnpacking ...[]any) {
 	if len(needUnpacking) == 0 {
 		for _, p := range topLevel {
 			select {
 			case <-ctx.Done():
 				return // Exit if the context is canceled
-			case channel <- append(append([]interface{}{}, result...), p):
+			case channel <- append(append([]any{}, result...), p):
 			}
 		}
 		return
@@ -270,7 +270,7 @@ func matchLabels(ml map[string]string, rl api.Labels, vars []string) bool {
 
 var captureGroupRegex = regexp.MustCompile(`\$\{(.+?):(\d+)\}`)
 
-func getField(i interface{}, name string) (string, bool) {
+func getField(i any, name string) (string, bool) {
 	s := reflect.Indirect(reflect.ValueOf(i))
 	f := reflect.Indirect(s.FieldByName(name))
 	if !f.IsValid() {
@@ -286,10 +286,11 @@ func (mc *MatchConditions) Matches(ai *api.AuthRequestInfo) bool {
 		"${name}", regexp.QuoteMeta(ai.Name),
 		"${service}", regexp.QuoteMeta(ai.Service),
 	}
+	title := cases.Title(language.Und)
 	for _, x := range []string{"Account", "Type", "Name", "Service"} {
 		field, _ := getField(mc, x)
 		for _, found := range captureGroupRegex.FindAllStringSubmatch(field, -1) {
-			key := strings.Title(found[1])
+			key := title.String(found[1])
 			index, _ := strconv.Atoi(found[2])
 			field, has := getField(mc, key)
 			if !has {

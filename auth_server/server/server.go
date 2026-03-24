@@ -19,6 +19,7 @@ package server
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -28,7 +29,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/casbin/casbin/v2"
 	"github.com/cesanta/glog"
 	"github.com/docker/distribution/registry/auth/token"
 
@@ -47,10 +47,6 @@ type AuthServer struct {
 	config         *Config
 	authenticators []api.Authenticator
 	authorizers    []api.Authorizer
-	ga             *authn.GoogleAuth
-	gha            *authn.GitHubAuth
-	oidc           *authn.OIDCAuth
-	glab           *authn.GitlabAuth
 
 	// Additional handlers
 	metricsHandler http.Handler
@@ -68,82 +64,8 @@ func NewAuthServer(c *Config) (*AuthServer, error) {
 		}
 		as.authorizers = append(as.authorizers, staticAuthorizer)
 	}
-	if c.ACLMongo != nil {
-		mongoAuthorizer, err := authz.NewACLMongoAuthorizer(c.ACLMongo)
-		if err != nil {
-			return nil, err
-		}
-		as.authorizers = append(as.authorizers, mongoAuthorizer)
-	}
-	if c.ACLXorm != nil {
-		xormAuthorizer, err := authz.NewACLXormAuthz(c.ACLXorm)
-		if err != nil {
-			return nil, err
-		}
-		as.authorizers = append(as.authorizers, xormAuthorizer)
-	}
-	if c.ExtAuthz != nil {
-		extAuthorizer := authz.NewExtAuthzAuthorizer(c.ExtAuthz)
-		as.authorizers = append(as.authorizers, extAuthorizer)
-	}
 	if c.Users != nil {
 		as.authenticators = append(as.authenticators, authn.NewStaticUserAuth(c.Users))
-	}
-	if c.ExtAuth != nil {
-		as.authenticators = append(as.authenticators, authn.NewExtAuth(c.ExtAuth))
-	}
-	if c.GoogleAuth != nil {
-		ga, err := authn.NewGoogleAuth(c.GoogleAuth)
-		if err != nil {
-			return nil, err
-		}
-		as.authenticators = append(as.authenticators, ga)
-		as.ga = ga
-	}
-	if c.GitHubAuth != nil {
-		gha, err := authn.NewGitHubAuth(c.GitHubAuth)
-		if err != nil {
-			return nil, err
-		}
-		as.authenticators = append(as.authenticators, gha)
-		as.gha = gha
-	}
-	if c.OIDCAuth != nil {
-		oidc, err := authn.NewOIDCAuth(c.OIDCAuth)
-		if err != nil {
-			return nil, err
-		}
-		as.authenticators = append(as.authenticators, oidc)
-		as.oidc = oidc
-	}
-	if c.GitlabAuth != nil {
-		glab, err := authn.NewGitlabAuth(c.GitlabAuth)
-		if err != nil {
-			return nil, err
-		}
-		as.authenticators = append(as.authenticators, glab)
-		as.glab = glab
-	}
-	if c.LDAPAuth != nil {
-		la, err := authn.NewLDAPAuth(c.LDAPAuth)
-		if err != nil {
-			return nil, err
-		}
-		as.authenticators = append(as.authenticators, la)
-	}
-	if c.MongoAuth != nil {
-		ma, err := authn.NewMongoAuth(c.MongoAuth)
-		if err != nil {
-			return nil, err
-		}
-		as.authenticators = append(as.authenticators, ma)
-	}
-	if c.XormAuthn != nil {
-		xa, err := authn.NewXormAuth(c.XormAuthn)
-		if err != nil {
-			return nil, err
-		}
-		as.authenticators = append(as.authenticators, xa)
 	}
 	if c.PluginAuthn != nil {
 		pluginAuthn, err := authn.NewPluginAuthn(c.PluginAuthn)
@@ -159,38 +81,36 @@ func NewAuthServer(c *Config) (*AuthServer, error) {
 		}
 		as.authorizers = append(as.authorizers, pluginAuthz)
 	}
-	if c.CasbinAuthz != nil {
-		enforcer, err := casbin.NewEnforcer(c.CasbinAuthz.ModelFilePath, c.CasbinAuthz.PolicyFilePath)
-		if err != nil {
-			return nil, err
-		}
-		casbinAuthz, err := authz.NewCasbinAuthorizer(enforcer)
-		if err != nil {
-			return nil, err
-		}
-		as.authorizers = append(as.authorizers, casbinAuthz)
-	}
 	if c.KubernetesAuth != nil {
 		ka, err := authn.NewKubernetesAuth(c.KubernetesAuth)
 		if err != nil {
 			return nil, err
 		}
 		as.authenticators = append(as.authenticators, ka)
+
+		if c.KubernetesAuth.Authz != nil {
+			k8sAuthz, err := authz.NewKubernetesAuthz(c.KubernetesAuth)
+			if err != nil {
+				return nil, err
+			}
+			as.authorizers = append(as.authorizers, k8sAuthz)
+		}
 	}
 	as.metricsHandler = promhttp.Handler()
 	return as, nil
 }
 
 type authRequest struct {
-	RemoteConnAddr string
-	RemoteAddr     string
-	RemoteIP       net.IP
-	User           string
-	Password       api.PasswordString
-	Account        string
-	Service        string
-	Scopes         []authScope
-	Labels         api.Labels
+	RemoteConnAddr    string
+	RemoteAddr        string
+	RemoteIP          net.IP
+	User              string
+	Password          api.PasswordString
+	Account           string
+	Service           string
+	Scopes            []authScope
+	Labels            api.Labels
+	AuthenticatorData any
 }
 
 type authScope struct {
@@ -323,26 +243,23 @@ func (as *AuthServer) ParseRequest(req *http.Request) (*authRequest, error) {
 	return ar, nil
 }
 
-func (as *AuthServer) Authenticate(ar *authRequest) (bool, api.Labels, error) {
+func (as *AuthServer) Authenticate(ar *authRequest) (api.AuthenticateResult, error) {
 	for i, a := range as.authenticators {
-		result, labels, err := a.Authenticate(ar.Account, ar.Password)
-		glog.V(2).Infof("Authn %s %s -> %t, %+v, %v", a.Name(), ar.Account, result, labels, err)
+		res, err := a.Authenticate(ar.Account, ar.Password)
+		glog.V(2).Infof("Authn %s %s -> %t, %+v, %v", a.Name(), ar.Account, res.Authenticated, res.Labels, err)
 		if err != nil {
-			if err == api.NoMatch {
+			if errors.Is(err, api.NoMatch) {
 				continue
-			} else if err == api.WrongPass {
-				glog.Warningf("Failed authentication with %s: %s", err, ar.Account)
-				return false, nil, nil
 			}
-			err = fmt.Errorf("authn #%d returned error: %s", i+1, err)
+			err = fmt.Errorf("authn #%d returned error: %w", i+1, err)
 			glog.Errorf("%s: %s", ar, err)
-			return false, nil, err
+			return api.AuthenticateResult{}, err
 		}
-		return result, labels, nil
+		return res, nil
 	}
 	// Deny by default.
 	glog.Warningf("%s did not match any authn rule", ar)
-	return false, nil, nil
+	return api.AuthenticateResult{}, nil
 }
 
 func (as *AuthServer) authorizeScope(ai *api.AuthRequestInfo) ([]string, error) {
@@ -350,10 +267,10 @@ func (as *AuthServer) authorizeScope(ai *api.AuthRequestInfo) ([]string, error) 
 		result, err := a.Authorize(ai)
 		glog.V(2).Infof("Authz %s %s -> %s, %s", a.Name(), *ai, result, err)
 		if err != nil {
-			if err == api.NoMatch {
+			if errors.Is(err, api.NoMatch) {
 				continue
 			}
-			err = fmt.Errorf("authz #%d returned error: %s", i+1, err)
+			err = fmt.Errorf("authz #%d returned error: %w", i+1, err)
 			glog.Errorf("%s: %s", *ai, err)
 			return nil, err
 		}
@@ -368,13 +285,14 @@ func (as *AuthServer) Authorize(ar *authRequest) ([]authzResult, error) {
 	ares := []authzResult{}
 	for _, scope := range ar.Scopes {
 		ai := &api.AuthRequestInfo{
-			Account: ar.Account,
-			Type:    scope.Type,
-			Name:    scope.Name,
-			Service: ar.Service,
-			IP:      ar.RemoteIP,
-			Actions: scope.Actions,
-			Labels:  ar.Labels,
+			Account:           ar.Account,
+			Type:              scope.Type,
+			Name:              scope.Name,
+			Service:           ar.Service,
+			IP:                ar.RemoteIP,
+			Actions:           scope.Actions,
+			Labels:            ar.Labels,
+			AuthenticatorData: ar.AuthenticatorData,
 		}
 		actions, err := as.authorizeScope(ai)
 		if err != nil {
@@ -452,40 +370,15 @@ func (as *AuthServer) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		as.doAuth(rw, req)
 	case req.URL.Path == path_prefix+"/auth/token":
 		as.doAuth(rw, req)
-	case req.URL.Path == path_prefix+"/google_auth" && as.ga != nil:
-		as.ga.DoGoogleAuth(rw, req)
-	case req.URL.Path == path_prefix+"/github_auth" && as.gha != nil:
-		as.gha.DoGitHubAuth(rw, req)
-	case req.URL.Path == path_prefix+"/oidc_auth" && as.oidc != nil:
-		as.oidc.DoOIDCAuth(rw, req)
-	case req.URL.Path == path_prefix+"/gitlab_auth" && as.glab != nil:
-		as.glab.DoGitlabAuth(rw, req)
 	default:
 		http.Error(rw, "Not found", http.StatusNotFound)
 		return
 	}
 }
 
-// https://developers.google.com/identity/sign-in/web/server-side-flow
-func (as *AuthServer) doIndex(rw http.ResponseWriter, req *http.Request) {
-	switch {
-	case as.ga != nil:
-		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(rw, "<h1>%s</h1>\n", as.config.Token.Issuer)
-		fmt.Fprint(rw, `<p><a href="/google_auth">Login with Google account</a></p>`)
-	case as.gha != nil:
-		url := as.config.Server.PathPrefix + "/github_auth"
-		http.Redirect(rw, req, url, 301)
-	case as.oidc != nil:
-		url := as.config.Server.PathPrefix + "/oidc_auth"
-		http.Redirect(rw, req, url, 301)
-	case as.glab != nil:
-		url := as.config.Server.PathPrefix + "/gitlab_auth"
-		http.Redirect(rw, req, url, 301)
-	default:
-		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(rw, "<h1>%s</h1>\n", as.config.Token.Issuer)
-	}
+func (as *AuthServer) doIndex(rw http.ResponseWriter, _ *http.Request) {
+	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(rw, "<h1>%s</h1>\n", as.config.Token.Issuer)
 }
 
 func (as *AuthServer) doMetrics(rw http.ResponseWriter, req *http.Request) {
@@ -502,18 +395,26 @@ func (as *AuthServer) doAuth(rw http.ResponseWriter, req *http.Request) {
 	}
 	glog.V(2).Infof("Auth request: %+v", ar)
 	{
-		authnResult, labels, err := as.Authenticate(ar)
+		authnRes, err := as.Authenticate(ar)
 		if err != nil {
+			var authFailed *api.AuthFailed
+			if errors.As(err, &authFailed) {
+				glog.Warningf("Auth failed: %s, error: %s", *ar, authFailed.Error())
+				rw.Header()["WWW-Authenticate"] = []string{fmt.Sprintf(`Basic realm="%s"`, as.config.Token.Issuer)}
+				http.Error(rw, authFailed.Error(), http.StatusUnauthorized)
+				return
+			}
 			http.Error(rw, fmt.Sprintf("Authentication failed (%s)", err), http.StatusInternalServerError)
 			return
 		}
-		if !authnResult {
+		if !authnRes.Authenticated {
 			glog.Warningf("Auth failed: %s", *ar)
 			rw.Header()["WWW-Authenticate"] = []string{fmt.Sprintf(`Basic realm="%s"`, as.config.Token.Issuer)}
 			http.Error(rw, "Auth failed.", http.StatusUnauthorized)
 			return
 		}
-		ar.Labels = labels
+		ar.Labels = authnRes.Labels
+		ar.AuthenticatorData = authnRes.Data
 	}
 	if len(ar.Scopes) > 0 {
 		ares, err = as.Authorize(ar)

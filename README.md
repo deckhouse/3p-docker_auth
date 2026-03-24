@@ -12,19 +12,13 @@ This server fills the gap and implements the protocol described [here](https://g
 
 Supported authentication methods:
  * Static list of users
- * Google Sign-In (incl. Google for Work / GApps for domain) (documented [here](https://github.com/cesanta/docker_auth/blob/main/examples/reference.yml))
- * [Github Sign-In](docs/auth-methods.md#github)
- * Gitlab Sign-In
- * LDAP bind ([demo](https://github.com/kwk/docker-registry-setup))
- * MongoDB user collection
- * MySQL/MariaDB, PostgreSQL, SQLite database table
- * [External program](https://github.com/cesanta/docker_auth/blob/main/examples/ext_auth.sh)
+ * Authentication plugin (`plugin_authn`)
+ * [Kubernetes bearer token](docs/auth-methods.md) (`kubernetes_auth`)
 
 Supported authorization methods:
  * Static ACL
- * MongoDB-backed ACL
- * MySQL/MariaDB, PostgreSQL, SQLite backed ACL
- * External program
+ * Authorization plugin (`plugin_authz`)
+ * Kubernetes RBAC (optional, with `kubernetes_auth.authz`)
 
 ## Installation and Examples
 

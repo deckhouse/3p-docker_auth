@@ -26,39 +26,26 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math/big"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/docker/libtrust"
 	yaml "gopkg.in/yaml.v2"
 
 	"github.com/cesanta/docker_auth/auth_server/authn"
 	"github.com/cesanta/docker_auth/auth_server/authz"
+	"github.com/cesanta/docker_auth/auth_server/k8s"
 )
 
 type Config struct {
 	Server         ServerConfig                   `yaml:"server"`
 	Token          TokenConfig                    `yaml:"token"`
 	Users          map[string]*authn.Requirements `yaml:"users,omitempty"`
-	GoogleAuth     *authn.GoogleAuthConfig        `yaml:"google_auth,omitempty"`
-	GitHubAuth     *authn.GitHubAuthConfig        `yaml:"github_auth,omitempty"`
-	OIDCAuth       *authn.OIDCAuthConfig          `yaml:"oidc_auth,omitempty"`
-	GitlabAuth     *authn.GitlabAuthConfig        `yaml:"gitlab_auth,omitempty"`
-	LDAPAuth       *authn.LDAPAuthConfig          `yaml:"ldap_auth,omitempty"`
-	MongoAuth      *authn.MongoAuthConfig         `yaml:"mongo_auth,omitempty"`
-	XormAuthn      *authn.XormAuthnConfig         `yaml:"xorm_auth,omitempty"`
-	ExtAuth        *authn.ExtAuthConfig           `yaml:"ext_auth,omitempty"`
+	KubernetesAuth *k8s.AuthConfig                `yaml:"kubernetes_auth,omitempty"`
 	PluginAuthn    *authn.PluginAuthnConfig       `yaml:"plugin_authn,omitempty"`
-	KubernetesAuth *authn.KubernetesAuthConfig    `yaml:"kubernetes_auth,omitempty"`
 	ACL            authz.ACL                      `yaml:"acl,omitempty"`
-	ACLMongo       *authz.ACLMongoConfig          `yaml:"acl_mongo,omitempty"`
-	ACLXorm        *authz.XormAuthzConfig         `yaml:"acl_xorm,omitempty"`
-	ExtAuthz       *authz.ExtAuthzConfig          `yaml:"ext_authz,omitempty"`
 	PluginAuthz    *authz.PluginAuthzConfig       `yaml:"plugin_authz,omitempty"`
-	CasbinAuthz    *authz.CasbinAuthzConfig       `yaml:"casbin_authz,omitempty"`
 }
 
 type ServerConfig struct {
@@ -73,17 +60,10 @@ type ServerConfig struct {
 	TLSMinVersion       string            `yaml:"tls_min_version,omitempty"`
 	TLSCurvePreferences []string          `yaml:"tls_curve_preferences,omitempty"`
 	TLSCipherSuites     []string          `yaml:"tls_cipher_suites,omitempty"`
-	LetsEncrypt         LetsEncryptConfig `yaml:"letsencrypt,omitempty"`
 
 	publicKey  libtrust.PublicKey
 	privateKey libtrust.PrivateKey
 	sigAlg     string
-}
-
-type LetsEncryptConfig struct {
-	Host     string `yaml:"host,omitempty"`
-	Email    string `yaml:"email,omitempty"`
-	CacheDir string `yaml:"cache_dir,omitempty"`
 }
 
 type TokenConfig struct {
@@ -143,9 +123,6 @@ var TLSVersionValues = map[string]uint16{
 	"TLS11": tls.VersionTLS11,
 	"TLS12": tls.VersionTLS12,
 	"TLS13": tls.VersionTLS13,
-	// Deprecated: SSLv3 is cryptographically broken, and will be
-	// removed in Go 1.14. See golang.org/issue/32716.
-	"SSL30": tls.VersionSSL30,
 }
 
 // TLSCurveIDValues maps CurveID names as strings to the actual values in the
@@ -181,161 +158,23 @@ func validate(c *Config) error {
 	if c.Token.Expiration <= 0 {
 		return fmt.Errorf("expiration must be positive, got %d", c.Token.Expiration)
 	}
-	if c.Users == nil && c.ExtAuth == nil && c.GoogleAuth == nil && c.GitHubAuth == nil && c.GitlabAuth == nil && c.OIDCAuth == nil && c.LDAPAuth == nil && c.MongoAuth == nil && c.XormAuthn == nil && c.PluginAuthn == nil && c.KubernetesAuth == nil {
+	if c.Users == nil && c.PluginAuthn == nil && c.KubernetesAuth == nil {
 		return errors.New("no auth methods are configured, this is probably a mistake. Use an empty user map if you really want to deny everyone")
 	}
-	if c.MongoAuth != nil {
-		if err := c.MongoAuth.Validate("mongo_auth"); err != nil {
-			return err
-		}
-	}
-	if c.XormAuthn != nil {
-		if err := c.XormAuthn.Validate("xorm_auth"); err != nil {
-			return err
-		}
-	}
 	if c.KubernetesAuth != nil {
+		k8s.ApplyDefaults(c.KubernetesAuth)
 		if err := c.KubernetesAuth.Validate("kubernetes_auth"); err != nil {
 			return err
 		}
 	}
-	if gac := c.GoogleAuth; gac != nil {
-		if gac.ClientSecretFile != "" {
-			contents, err := ioutil.ReadFile(gac.ClientSecretFile)
-			if err != nil {
-				return fmt.Errorf("could not read %s: %s", gac.ClientSecretFile, err)
-			}
-			gac.ClientSecret = strings.TrimSpace(string(contents))
-		}
-		if gac.ClientId == "" || gac.ClientSecret == "" || (gac.LevelTokenDB != nil && gac.LevelTokenDB.Path == "") {
-			return errors.New("google_auth.{client_id,client_secret,level_token_db.path} are required")
-		}
-
-		if gac.ClientId == "" || gac.ClientSecret == "" || (gac.GCSTokenDB != nil && (gac.GCSTokenDB.Bucket == "" || gac.GCSTokenDB.ClientSecretFile == "")) {
-			return errors.New("google_auth.{client_id,client_secret,gcs_token_db{bucket,client_secret_file}} are required")
-		}
-
-		if gac.ClientId == "" || gac.ClientSecret == "" || (gac.RedisTokenDB != nil && gac.RedisTokenDB.ClientOptions == nil && gac.RedisTokenDB.ClusterOptions == nil) {
-			return errors.New("google_auth.{client_id,client_secret,redis_token_db.{redis_options,redis_cluster_options}} are required")
-		}
-
-		if gac.HTTPTimeout <= 0 {
-			gac.HTTPTimeout = time.Duration(10 * time.Second)
-		}
-	}
-	if ghac := c.GitHubAuth; ghac != nil {
-		if ghac.ClientSecretFile != "" {
-			contents, err := ioutil.ReadFile(ghac.ClientSecretFile)
-			if err != nil {
-				return fmt.Errorf("could not read %s: %s", ghac.ClientSecretFile, err)
-			}
-			ghac.ClientSecret = strings.TrimSpace(string(contents))
-		}
-		if ghac.ClientId == "" || ghac.ClientSecret == "" || (ghac.LevelTokenDB != nil && ghac.LevelTokenDB.Path == "") {
-			return errors.New("github_auth.{client_id,client_secret,level_token_db.path} are required")
-		}
-
-		if ghac.ClientId == "" || ghac.ClientSecret == "" || (ghac.GCSTokenDB != nil && (ghac.GCSTokenDB.Bucket == "" || ghac.GCSTokenDB.ClientSecretFile == "")) {
-			return errors.New("github_auth.{client_id,client_secret,gcs_token_db{bucket,client_secret_file}} are required")
-		}
-
-		if ghac.ClientId == "" || ghac.ClientSecret == "" || (ghac.RedisTokenDB != nil && ghac.RedisTokenDB.ClientOptions == nil && ghac.RedisTokenDB.ClusterOptions == nil) {
-			return errors.New("github_auth.{client_id,client_secret,redis_token_db.{redis_options,redis_cluster_options}} are required")
-		}
-
-		if ghac.HTTPTimeout <= 0 {
-			ghac.HTTPTimeout = time.Duration(10 * time.Second)
-		}
-		if ghac.RevalidateAfter == 0 {
-			// Token expires after 1 hour by default
-			ghac.RevalidateAfter = time.Duration(1 * time.Hour)
-		}
-	}
-	if oidc := c.OIDCAuth; oidc != nil {
-		if oidc.ClientSecretFile != "" {
-			contents, err := ioutil.ReadFile(oidc.ClientSecretFile)
-			if err != nil {
-				return fmt.Errorf("could not read %s: %s", oidc.ClientSecretFile, err)
-			}
-			oidc.ClientSecret = strings.TrimSpace(string(contents))
-		}
-		if oidc.ClientId == "" || oidc.ClientSecret == "" || oidc.Issuer == "" || oidc.RedirectURL == "" || (oidc.LevelTokenDB != nil && oidc.LevelTokenDB.Path == "") {
-			return errors.New("oidc_auth.{issuer,redirect_url,client_id,client_secret,level_token_db.path} are required")
-		}
-
-		if oidc.ClientId == "" || oidc.ClientSecret == "" || (oidc.GCSTokenDB != nil && (oidc.GCSTokenDB.Bucket == "" || oidc.GCSTokenDB.ClientSecretFile == "")) {
-			return errors.New("oidc_auth.{client_id,client_secret,gcs_token_db{bucket,client_secret_file}} are required")
-		}
-
-		if oidc.ClientId == "" || oidc.ClientSecret == "" || (oidc.RedisTokenDB != nil && oidc.RedisTokenDB.ClientOptions == nil && oidc.RedisTokenDB.ClusterOptions == nil) {
-			return errors.New("oidc_auth.{client_id,client_secret,redis_token_db.{redis_options,redis_cluster_options}} are required")
-		}
-
-		if oidc.HTTPTimeout <= 0 {
-			oidc.HTTPTimeout = time.Duration(10 * time.Second)
-		}
-		if oidc.UserClaim == "" {
-			oidc.UserClaim = "email"
-		}
-		if oidc.Scopes == nil {
-			oidc.Scopes = []string{"openid", "email"}
-		}
-	}
-	if glab := c.GitlabAuth; glab != nil {
-		if glab.ClientSecretFile != "" {
-			contents, err := ioutil.ReadFile(glab.ClientSecretFile)
-			if err != nil {
-				return fmt.Errorf("could not read %s: %s", glab.ClientSecretFile, err)
-			}
-			glab.ClientSecret = strings.TrimSpace(string(contents))
-		}
-		if glab.ClientId == "" || glab.ClientSecret == "" || (glab.LevelTokenDB != nil && glab.LevelTokenDB.Path == "") {
-			return errors.New("gitlab_auth.{client_id,client_secret,level_token_db.path} are required")
-		}
-
-		if glab.ClientId == "" || glab.ClientSecret == "" || (glab.GCSTokenDB != nil && (glab.GCSTokenDB.Bucket == "" || glab.GCSTokenDB.ClientSecretFile == "")) {
-			return errors.New("gitlab_auth.{client_id,client_secret,gcs_token_db{bucket,client_secret_file}} are required")
-		}
-
-		if glab.ClientId == "" || glab.ClientSecret == "" || (glab.RedisTokenDB != nil && glab.RedisTokenDB.ClientOptions == nil && glab.RedisTokenDB.ClusterOptions == nil) {
-			return errors.New("gitlab_auth.{client_id,client_secret,redis_token_db.{redis_options,redis_cluster_options}} are required")
-		}
-
-		if glab.HTTPTimeout <= 0 {
-			glab.HTTPTimeout = time.Duration(10 * time.Second)
-		}
-		if glab.RevalidateAfter == 0 {
-			// Token expires after 1 hour by default
-			glab.RevalidateAfter = time.Duration(1 * time.Hour)
-		}
-	}
-	if c.ExtAuth != nil {
-		if err := c.ExtAuth.Validate(); err != nil {
-			return fmt.Errorf("bad ext_auth config: %s", err)
-		}
-	}
-	if c.ACL == nil && c.ACLXorm == nil && c.ACLMongo == nil && c.ExtAuthz == nil && c.PluginAuthz == nil {
+	hasK8sAuthz := c.KubernetesAuth != nil && c.KubernetesAuth.Authz != nil
+	if c.ACL == nil && c.PluginAuthz == nil && !hasK8sAuthz {
 		return errors.New("ACL is empty, this is probably a mistake. Use an empty list if you really want to deny all actions")
 	}
 
 	if c.ACL != nil {
 		if err := authz.ValidateACL(c.ACL); err != nil {
 			return fmt.Errorf("invalid ACL: %s", err)
-		}
-	}
-	if c.ACLMongo != nil {
-		if err := c.ACLMongo.Validate("acl_mongo"); err != nil {
-			return err
-		}
-	}
-	if c.ACLXorm != nil {
-		if err := c.ACLXorm.Validate("acl_xorm"); err != nil {
-			return err
-		}
-	}
-	if c.ExtAuthz != nil {
-		if err := c.ExtAuthz.Validate(); err != nil {
-			return err
 		}
 	}
 	if c.PluginAuthn != nil {
@@ -374,7 +213,7 @@ func loadCertAndKey(certFile string, keyFile string) (pk libtrust.PublicKey, prk
 }
 
 func LoadConfig(fileName string) (*Config, error) {
-	contents, err := ioutil.ReadFile(fileName)
+	contents, err := os.ReadFile(fileName)
 	if err != nil {
 		return nil, fmt.Errorf("could not read %s: %s", fileName, err)
 	}
@@ -423,18 +262,6 @@ func LoadConfig(fileName string) (*Config, error) {
 		c.Token.keyID = getRFC7638Thumbprint(c.Token.publicKey.CryptoPublicKey())
 	} else {
 		c.Token.keyID = c.Token.publicKey.KeyID()
-	}
-
-	if !serverConfigured && c.Server.LetsEncrypt.Email != "" {
-		if c.Server.LetsEncrypt.CacheDir == "" {
-			return nil, fmt.Errorf("server.letsencrypt.cache_dir is required")
-		}
-		// We require that LetsEncrypt is an existing directory, because we really don't want it
-		// to be misconfigured and obtained certificates to be lost.
-		fi, err := os.Stat(c.Server.LetsEncrypt.CacheDir)
-		if err != nil || !fi.IsDir() {
-			return nil, fmt.Errorf("server.letsencrypt.cache_dir (%s) does not exist or is not a directory", c.Server.LetsEncrypt.CacheDir)
-		}
 	}
 
 	return c, nil
