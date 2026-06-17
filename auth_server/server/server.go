@@ -35,6 +35,7 @@ import (
 	"github.com/cesanta/docker_auth/auth_server/api"
 	"github.com/cesanta/docker_auth/auth_server/authn"
 	"github.com/cesanta/docker_auth/auth_server/authz"
+	"github.com/cesanta/docker_auth/auth_server/k8s"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -303,6 +304,20 @@ func (as *AuthServer) Authorize(ar *authRequest) ([]authzResult, error) {
 	return ares, nil
 }
 
+// auditSubject returns the identity to record as the token subject. When the
+// authenticator resolved a real Kubernetes principal (the "username" label set
+// by the Kubernetes TokenReview authenticator, e.g.
+// "system:serviceaccount:ns:sa" or a user name), it is used so the registry's
+// access logs and notification events attribute pull/push to the actual
+// Kubernetes identity instead of the generic basic-auth account (e.g. "token").
+// Otherwise it falls back to the basic-auth account.
+func (ar *authRequest) auditSubject() string {
+	if names, ok := ar.Labels[k8s.UserLabel]; ok && len(names) > 0 && names[0] != "" {
+		return names[0]
+	}
+	return ar.Account
+}
+
 // https://github.com/docker/distribution/blob/master/docs/spec/auth/token.md#example
 func (as *AuthServer) CreateToken(ar *authRequest, ares []authzResult) (string, error) {
 	now := time.Now().Unix()
@@ -320,7 +335,7 @@ func (as *AuthServer) CreateToken(ar *authRequest, ares []authzResult) (string, 
 
 	claims := token.ClaimSet{
 		Issuer:     tc.Issuer,
-		Subject:    ar.Account,
+		Subject:    ar.auditSubject(),
 		Audience:   ar.Service,
 		NotBefore:  now - 10,
 		IssuedAt:   now,
